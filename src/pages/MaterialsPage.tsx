@@ -3,6 +3,7 @@ import { type User } from "@/pages/LoginPage";
 import { apiGetMaterials, apiCreateMaterial, apiUploadMaterial, apiDeleteMaterial, type Material } from "@/lib/api";
 import Icon from "@/components/ui/icon";
 import LibraryPanel from "@/components/LibraryPanel";
+import MaterialAssignDialog from "@/components/materials/MaterialAssignDialog";
 
 const categories = ["Все", "Грамматика", "Аудио", "Видео", "Упражнения", "Словари"];
 
@@ -65,6 +66,7 @@ export default function MaterialsPage({ user }: { user: User }) {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
   const [confirmDel, setConfirmDel] = useState<Material | null>(null);
+  const [assignFor, setAssignFor] = useState<Material | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const limitMb = limits[form.category] ?? 200;
@@ -325,16 +327,42 @@ export default function MaterialsPage({ user }: { user: User }) {
                     </span>
                   )}
                   {user.role === "teacher" && (
-                    <button onClick={() => setConfirmDel(m)} title="Удалить материал"
-                      className="p-1.5 rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
-                      <Icon name="Trash2" size={15} className="text-red-500" />
-                    </button>
+                    <>
+                      <button onClick={() => setAssignFor(m)} title="Кому выдать материал"
+                        className="p-1.5 rounded-lg hover:bg-muted transition-colors">
+                        <Icon name="UserPlus" size={15} className="text-muted-foreground" />
+                      </button>
+                      <button onClick={() => setConfirmDel(m)} title="Удалить материал"
+                        className="p-1.5 rounded-lg hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100">
+                        <Icon name="Trash2" size={15} className="text-red-500" />
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
-              <div className="mt-3 pt-3 border-t border-border flex items-center gap-2">
+              <div className="mt-3 pt-3 border-t border-border flex items-center gap-2 flex-wrap">
                 <span className={`text-xs px-2 py-0.5 rounded font-montserrat font-bold ${typeColors[m.file_type] || "bg-muted text-muted-foreground"}`}>{m.file_type}</span>
                 <span className="text-xs text-muted-foreground font-ibm">{m.category}</span>
+                {!m.students?.length && !m.lessons?.length ? (
+                  <span className="text-xs text-muted-foreground/70 font-ibm flex items-center gap-1">
+                    <Icon name="Globe" size={12} /> всем
+                  </span>
+                ) : (
+                  <>
+                    {!!m.students?.length && (
+                      <span className="text-xs font-ibm flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700"
+                        title={m.students.map(s => s.name).join(", ")}>
+                        <Icon name="Users" size={12} /> {m.students.length}
+                      </span>
+                    )}
+                    {!!m.lessons?.length && (
+                      <span className="text-xs font-ibm flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-700"
+                        title={m.lessons.map(l => `${l.lesson_date} ${l.lesson_time} — ${l.topic}`).join("\n")}>
+                        <Icon name="CalendarDays" size={12} /> {m.lessons.length}
+                      </span>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -348,6 +376,12 @@ export default function MaterialsPage({ user }: { user: User }) {
         </div>
       )}
       </>
+      )}
+
+      {assignFor && (
+        <MaterialAssignDialog material={assignFor}
+          onClose={() => setAssignFor(null)}
+          onDone={() => reload()} />
       )}
 
       {confirmDel && (

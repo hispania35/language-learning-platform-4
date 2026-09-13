@@ -174,6 +174,17 @@ export async function apiDeleteMaterial(id: number) {
   return r.data as { ok?: boolean; error?: string };
 }
 
+/** Прикрепить материал к ученикам, группе или занятиям */
+export async function apiAssignMaterial(data: {
+  material_id: number;
+  student_ids?: number[];
+  lesson_ids?: number[];
+  group_id?: number;
+}) {
+  const r = await request(API_URL + "?p=material_assign", { method: "POST", body: JSON.stringify(data) });
+  return r.data as { ok?: boolean; students?: number; lessons?: number; error?: string };
+}
+
 /** Загрузка файла материала прямо в облако + создание карточки */
 export async function apiUploadMaterial(
   file: File,
@@ -414,6 +425,13 @@ export interface GroupData {
   student_ids?: number[];
 }
 
+export interface MaterialLessonRef {
+  id: number;
+  topic: string;
+  lesson_date: string;
+  lesson_time: string;
+}
+
 export interface Material {
   id: number;
   title: string;
@@ -424,6 +442,8 @@ export interface Material {
   file_url?: string;
   created_at: string;
   teacher_name: string;
+  students?: LessonStudent[];
+  lessons?: MaterialLessonRef[];
 }
 
 export interface CreateMaterialData {

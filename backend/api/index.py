@@ -94,7 +94,7 @@ def handler(event: dict, context) -> dict:
         # --- Materials ---
         if path == "materials":
             if method == "GET":
-                return get_materials(conn)
+                return get_materials(conn, user_id, role)
             if method == "POST":
                 return create_material(event, conn, user_id, role)
             if method == "DELETE":
@@ -102,6 +102,9 @@ def handler(event: dict, context) -> dict:
 
         if path == "material_upload_url" and method == "POST":
             return material_upload_url(event, conn, role)
+
+        if path == "material_assign" and method == "POST":
+            return assign_material(event, conn, user_id, role)
 
         # --- Calendar ---
         if path == "calendar":
@@ -274,12 +277,62 @@ def delete_material(event, conn, user_id, role):
             lib_client().delete_object(Bucket=os.environ["LIB_S3_BUCKET"], Key=row[0])
         except Exception:
             pass
+    cur.execute("DELETE FROM material_assignments WHERE material_id=%s", (int(mid),))
     cur.execute("DELETE FROM materials WHERE id=%s", (int(mid),))
     conn.commit(); cur.close(); conn.close()
     return resp(200, {"ok": True})
 
 
-def get_materials(conn):
+def assign_material(event, conn, user_id, role):
+    """Прикрепить материал к ученикам, группе или занятию (полная замена списка)."""
+    if role != "teacher":
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    body = json.loads(event.get("body") or "{}")
+    mid = body.get("material_id")
+    if not mid:
+        conn.close()
+        return resp(400, {"error": "Не указан материал"})
+    mid = int(mid)
+
+    student_ids = [int(s) for s in (body.get("student_ids") or [])]
+    lesson_ids = [int(l) for l in (body.get("lesson_ids") or [])]
+    group_id = body.get("group_id")
+
+    cur = conn.cursor()
+    cur.execute("SELECT title FROM materials WHERE id=%s", (mid,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return resp(404, {"error": "Материал не найден"})
+    title = row[0]
+
+    if group_id:
+        cur.execute("SELECT student_id FROM group_members WHERE group_id=%s", (int(group_id),))
+        student_ids = sorted(set(student_ids) | {r[0] for r in cur.fetchall()})
+
+    cur.execute("DELETE FROM material_assignments WHERE material_id=%s", (mid,))
+    if student_ids:
+        vals = ",".join(cur.mogrify("(%s,%s)", (mid, sid)).decode() for sid in set(student_ids))
+        cur.execute(f"INSERT INTO material_assignments (material_id, student_id) VALUES {vals}")
+    if lesson_ids:
+        vals = ",".join(cur.mogrify("(%s,%s)", (mid, lid)).decode() for lid in set(lesson_ids))
+        cur.execute(f"INSERT INTO material_assignments (material_id, lesson_id) VALUES {vals}")
+
+    # ученики занятий тоже получают уведомление
+    notify_ids = set(student_ids)
+    if lesson_ids:
+        ids = ",".join(str(i) for i in set(lesson_ids))
+        cur.execute(f"SELECT DISTINCT student_id FROM lesson_students WHERE lesson_id IN ({ids})")
+        notify_ids |= {r[0] for r in cur.fetchall()}
+    if notify_ids:
+        notify_many(cur, [(sid, f"Вам выдан материал: {title}") for sid in notify_ids], "material")
+
+    conn.commit(); cur.close(); conn.close()
+    return resp(200, {"ok": True, "students": len(set(student_ids)), "lessons": len(set(lesson_ids))})
+
+
+def get_materials(conn, user_id=None, role="teacher"):
     cur = conn.cursor()
     cur.execute(
         """SELECT m.id, m.title, m.description, m.category,
@@ -291,6 +344,44 @@ def get_materials(conn):
     rows = cur.fetchall()
     cols = [d[0] for d in cur.description]
     items = [dict(zip(cols, r)) for r in rows]
+    by_id = {it["id"]: it for it in items}
+    for it in items:
+        it["students"] = []
+        it["lessons"] = []
+
+    # кому и к каким занятиям прикреплён материал
+    cur.execute(
+        """SELECT a.material_id, a.student_id, u.name, u.avatar
+           FROM material_assignments a JOIN users u ON u.id=a.student_id
+           WHERE a.student_id IS NOT NULL"""
+    )
+    for m_id, sid, name, avatar in cur.fetchall():
+        if m_id in by_id:
+            by_id[m_id]["students"].append({"id": sid, "name": name, "avatar": avatar})
+
+    cur.execute(
+        """SELECT a.material_id, a.lesson_id, l.topic, l.lesson_date, l.lesson_time
+           FROM material_assignments a JOIN lessons l ON l.id=a.lesson_id
+           WHERE a.lesson_id IS NOT NULL"""
+    )
+    for m_id, lid, topic, ldate, ltime in cur.fetchall():
+        if m_id in by_id:
+            by_id[m_id]["lessons"].append({
+                "id": lid, "topic": topic,
+                "lesson_date": str(ldate), "lesson_time": str(ltime)[:5],
+            })
+
+    # ученик видит только общие материалы и то, что выдано лично или на его занятие
+    if role != "teacher" and user_id:
+        cur.execute("SELECT lesson_id FROM lesson_students WHERE student_id=%s", (user_id,))
+        my_lessons = {r[0] for r in cur.fetchall()}
+        items = [
+            it for it in items
+            if (not it["students"] and not it["lessons"])
+            or any(s["id"] == user_id for s in it["students"])
+            or any(l["id"] in my_lessons for l in it["lessons"])
+        ]
+
     ready = lib_storage_ready()
     for it in items:
         if it.get("storage") == "external" and it.get("file_key") and ready:
