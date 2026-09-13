@@ -94,6 +94,22 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
     setSelected(null);
   };
 
+  const nextTopic = () => {
+    const nums = lessons
+      .map(l => /^урок\s*(\d+)$/i.exec(l.topic.trim()))
+      .filter(Boolean)
+      .map(m => Number(m![1]));
+    return `Урок ${nums.length ? Math.max(...nums) + 1 : 1}`;
+  };
+
+  const lastUsedType = () => {
+    const saved = localStorage.getItem("lastLessonType");
+    if (saved && lessonTypes.includes(saved)) return saved;
+    const recent = [...lessons]
+      .sort((a, b) => (b.lesson_date + b.lesson_time).localeCompare(a.lesson_date + a.lesson_time))[0];
+    return recent?.lesson_type && lessonTypes.includes(recent.lesson_type) ? recent.lesson_type : "Грамматика";
+  };
+
   const findLesson = (dateKey: string, time: string) =>
     visibleLessons.find(l => l.lesson_date === dateKey && l.lesson_time.slice(0, 5) === time);
 
@@ -205,7 +221,13 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
     const lesson = findLesson(dateKey, time);
     setSelected({ date: dateKey, time });
     if (!lesson && isTeacher) {
-      setForm({ ...form, lesson_date: dateKey, lesson_time: time });
+      setForm({
+        ...form,
+        topic: form.topic.trim() || nextTopic(),
+        lesson_type: lastUsedType(),
+        lesson_date: dateKey,
+        lesson_time: time,
+      });
       if (filterStudent) setSelectedStudents([filterStudent]);
       setFormError("");
       setShowAdd(true);
@@ -237,7 +259,8 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
         const updated = await apiGetCalendar();
         if (updated.lessons) setLessons(updated.lessons);
         setShowAdd(false);
-        setForm({ topic: "", lesson_date: "", lesson_time: "18:00", duration_min: 60, lesson_type: "Грамматика" });
+        localStorage.setItem("lastLessonType", form.lesson_type);
+        setForm({ topic: "", lesson_date: "", lesson_time: "18:00", duration_min: 60, lesson_type: form.lesson_type });
         setSelectedStudents([]);
       } else {
         setFormError(res.error || "Не удалось сохранить занятие");
@@ -427,7 +450,15 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
         {/* Details */}
         <div className="lg:col-span-2 space-y-3">
           {isTeacher && (
-            <button onClick={() => { setShowAdd(!showAdd); setFormError(""); }}
+            <button onClick={() => {
+                if (!showAdd) setForm(prev => ({
+                  ...prev,
+                  topic: prev.topic.trim() || nextTopic(),
+                  lesson_type: lastUsedType(),
+                }));
+                setShowAdd(!showAdd);
+                setFormError("");
+              }}
               className="w-full flex items-center justify-center gap-2 py-2.5 red-accent text-white rounded-xl text-sm font-montserrat font-medium hover:opacity-90 transition-opacity">
               <Icon name="Plus" size={16} />
               Добавить занятие
@@ -444,7 +475,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                   <Icon name="X" size={18} className="text-muted-foreground" />
                 </button>
               </div>
-              <input type="text" placeholder="Тема урока, например «Урок с Дашей»" value={form.topic}
+              <input type="text" placeholder="Тема урока — подставится «Урок 1», «Урок 2»..." value={form.topic}
                 onChange={e => { setForm({ ...form, topic: e.target.value }); if (formError) setFormError(""); }}
                 className={`w-full px-3 py-2 rounded-lg border bg-muted/30 text-sm font-ibm outline-none transition-colors
                   ${formError && !form.topic.trim() ? "border-red-400 focus:border-red-500" : "border-border focus:border-primary/40"}`} />
@@ -461,7 +492,8 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                 <input type="time" value={form.lesson_time} onChange={e => setForm({ ...form, lesson_time: e.target.value })}
                   className="px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40" />
               </div>
-              <select value={form.lesson_type} onChange={e => setForm({ ...form, lesson_type: e.target.value })}
+              <select value={form.lesson_type}
+                onChange={e => { setForm({ ...form, lesson_type: e.target.value }); localStorage.setItem("lastLessonType", e.target.value); }}
                 className="w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40">
                 {lessonTypes.map(t => <option key={t}>{t}</option>)}
               </select>
