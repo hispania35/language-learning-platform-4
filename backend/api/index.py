@@ -97,6 +97,11 @@ def handler(event: dict, context) -> dict:
                 return get_materials(conn)
             if method == "POST":
                 return create_material(event, conn, user_id, role)
+            if method == "DELETE":
+                return delete_material(event, conn, user_id, role)
+
+        if path == "material_upload_url" and method == "POST":
+            return material_upload_url(event, conn, role)
 
         # --- Calendar ---
         if path == "calendar":
@@ -184,19 +189,120 @@ def handler(event: dict, context) -> dict:
 
 # ── Materials ──────────────────────────────────────────────────────────────────
 
+# Лимиты на размер файла по категориям, МБ
+CATEGORY_LIMITS = {
+    "Аудио": 20,
+    "Видео": 2048,
+    "Упражнения": 100,
+    "Грамматика": 200,
+    "Словари": 200,
+}
+DEFAULT_LIMIT_MB = 200
+
+
+def lib_storage_ready():
+    return all(os.environ.get(k) for k in
+               ("LIB_S3_ENDPOINT", "LIB_S3_BUCKET", "LIB_S3_KEY_ID", "LIB_S3_SECRET_KEY"))
+
+
+def lib_client():
+    import boto3
+    from botocore.config import Config
+    return boto3.client(
+        "s3",
+        endpoint_url=os.environ["LIB_S3_ENDPOINT"],
+        aws_access_key_id=os.environ["LIB_S3_KEY_ID"],
+        aws_secret_access_key=os.environ["LIB_S3_SECRET_KEY"],
+        region_name=os.environ.get("LIB_S3_REGION", "ru-central1"),
+        config=Config(signature_version="s3v4"),
+    )
+
+
+def lib_signed_get(key, file_name=None):
+    params = {"Bucket": os.environ["LIB_S3_BUCKET"], "Key": key}
+    if file_name:
+        params["ResponseContentDisposition"] = f'attachment; filename="{file_name}"'
+    return lib_client().generate_presigned_url("get_object", Params=params, ExpiresIn=86400)
+
+
+def material_upload_url(event, conn, role):
+    """Выдать браузеру одноразовую ссылку, чтобы загрузить файл материала прямо в облако."""
+    if role != "teacher":
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    if not lib_storage_ready():
+        conn.close()
+        return resp(400, {"error": "Облачное хранилище не подключено"})
+
+    import uuid
+    body = json.loads(event.get("body") or "{}")
+    file_name = (body.get("file_name") or "file").strip()
+    mime = body.get("mime") or "application/octet-stream"
+    size = int(body.get("size") or 0)
+    category = body.get("category") or ""
+    limit_mb = CATEGORY_LIMITS.get(category, DEFAULT_LIMIT_MB)
+    if size > limit_mb * 1024 * 1024:
+        conn.close()
+        return resp(400, {"error": f"Для «{category}» максимум {limit_mb} МБ"})
+
+    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else "bin"
+    key = f"materials/{uuid.uuid4().hex}.{ext}"
+    put_url = lib_client().generate_presigned_url(
+        "put_object",
+        Params={"Bucket": os.environ["LIB_S3_BUCKET"], "Key": key, "ContentType": mime},
+        ExpiresIn=3600,
+    )
+    conn.close()
+    return resp(200, {"upload_url": put_url, "key": key})
+
+
+def delete_material(event, conn, user_id, role):
+    """Удалить материал вместе с файлом в облаке."""
+    if role != "teacher":
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    params = event.get("queryStringParameters") or {}
+    mid = params.get("id") or json.loads(event.get("body") or "{}").get("id")
+    if not mid:
+        conn.close()
+        return resp(400, {"error": "Не указан материал"})
+    cur = conn.cursor()
+    cur.execute("SELECT file_key, storage FROM materials WHERE id=%s", (int(mid),))
+    row = cur.fetchone()
+    if row and row[0] and row[1] == "external" and lib_storage_ready():
+        try:
+            lib_client().delete_object(Bucket=os.environ["LIB_S3_BUCKET"], Key=row[0])
+        except Exception:
+            pass
+    cur.execute("DELETE FROM materials WHERE id=%s", (int(mid),))
+    conn.commit(); cur.close(); conn.close()
+    return resp(200, {"ok": True})
+
+
 def get_materials(conn):
     cur = conn.cursor()
     cur.execute(
         """SELECT m.id, m.title, m.description, m.category,
                   m.file_type, m.file_size, m.file_url, m.created_at,
-                  u.name as teacher_name
+                  u.name as teacher_name, m.file_key, m.file_name, m.storage
            FROM materials m JOIN users u ON u.id=m.teacher_id
            ORDER BY m.created_at DESC"""
     )
     rows = cur.fetchall()
     cols = [d[0] for d in cur.description]
+    items = [dict(zip(cols, r)) for r in rows]
+    ready = lib_storage_ready()
+    for it in items:
+        if it.get("storage") == "external" and it.get("file_key") and ready:
+            try:
+                it["file_url"] = lib_signed_get(it["file_key"], it.get("file_name"))
+            except Exception:
+                it["file_url"] = None
+        it.pop("file_key", None)
+        it.pop("storage", None)
     cur.close(); conn.close()
-    return resp(200, {"materials": [dict(zip(cols, r)) for r in rows]})
+    return resp(200, {"materials": items, "limits": CATEGORY_LIMITS,
+                      "storage_ready": ready})
 
 def create_material(event, conn, user_id, role):
     if role != "teacher":
@@ -207,12 +313,24 @@ def create_material(event, conn, user_id, role):
     if not title:
         conn.close()
         return resp(400, {"error": "Название обязательно"})
+    key = body.get("file_key")
+    size = int(body.get("size") or 0)
+    if size:
+        human = (f"{round(size / 1024)} КБ" if size < 1024 * 1024
+                 else f"{size / 1024 / 1024:.1f} МБ" if size < 1024 ** 3
+                 else f"{size / 1024 ** 3:.2f} ГБ")
+    else:
+        human = body.get("file_size")
+
     cur = conn.cursor()
     cur.execute(
-        """INSERT INTO materials (teacher_id, title, description, category, file_type, file_size, file_url)
-           VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        """INSERT INTO materials (teacher_id, title, description, category, file_type, file_size,
+                                  file_url, file_key, file_name, mime, size_bytes, storage)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (user_id, title, body.get("description"), body.get("category"),
-         body.get("file_type"), body.get("file_size"), body.get("file_url"))
+         body.get("file_type"), human, body.get("file_url"),
+         key, body.get("file_name"), body.get("mime"), size,
+         "external" if key else None)
     )
     mat_id = cur.fetchone()[0]
     cur.execute("SELECT id FROM users WHERE role='student'")

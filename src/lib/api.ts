@@ -156,11 +156,60 @@ export async function apiUpdateStudent(data: {
 
 export async function apiGetMaterials() {
   const r = await request(API_URL + "?p=materials");
-  return r.data as { materials?: Material[]; error?: string };
+  return r.data as {
+    materials?: Material[];
+    limits?: Record<string, number>;
+    storage_ready?: boolean;
+    error?: string;
+  };
 }
 
 export async function apiCreateMaterial(data: CreateMaterialData) {
   const r = await request(API_URL + "?p=materials", { method: "POST", body: JSON.stringify(data) });
+  return r.data as { ok?: boolean; id?: number; error?: string };
+}
+
+export async function apiDeleteMaterial(id: number) {
+  const r = await request(`${API_URL}?p=materials&id=${id}`, { method: "DELETE", body: JSON.stringify({ id }) });
+  return r.data as { ok?: boolean; error?: string };
+}
+
+/** Загрузка файла материала прямо в облако + создание карточки */
+export async function apiUploadMaterial(
+  file: File,
+  meta: CreateMaterialData,
+  onProgress?: (percent: number) => void,
+) {
+  const mime = file.type || "application/octet-stream";
+  const slot = await request(API_URL + "?p=material_upload_url", {
+    method: "POST",
+    body: JSON.stringify({ file_name: file.name, mime, size: file.size, category: meta.category }),
+  });
+  const s = slot.data as { upload_url?: string; key?: string; error?: string };
+  if (!s.upload_url || !s.key) return { error: s.error || "Не удалось начать загрузку" };
+
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", s.upload_url as string);
+    xhr.setRequestHeader("Content-Type", mime);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`)));
+    xhr.onerror = () => reject(new Error("network"));
+    xhr.send(file);
+  });
+
+  const r = await request(API_URL + "?p=materials", {
+    method: "POST",
+    body: JSON.stringify({
+      ...meta,
+      file_key: s.key,
+      file_name: file.name,
+      mime,
+      size: file.size,
+    }),
+  });
   return r.data as { ok?: boolean; id?: number; error?: string };
 }
 
@@ -384,6 +433,10 @@ export interface CreateMaterialData {
   file_type?: string;
   file_size?: string;
   file_url?: string;
+  file_key?: string;
+  file_name?: string;
+  mime?: string;
+  size?: number;
 }
 
 export interface LessonStudent {
