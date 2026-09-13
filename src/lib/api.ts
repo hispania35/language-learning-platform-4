@@ -2,6 +2,7 @@ const AUTH_URL = "https://functions.poehali.dev/8e1fb776-5df3-4087-84d5-894ba098
 const HOMEWORK_URL = "https://functions.poehali.dev/ada0a99c-976c-4672-bfd4-ae6d47384e64";
 const API_URL = "https://functions.poehali.dev/e7c17244-0dc8-4e62-b8d4-2e668d7af9d1";
 const LIBRARY_URL = "https://functions.poehali.dev/5b3dca5a-a2f2-4bfb-a41e-c63f332038b0";
+const CARDS_URL = "https://functions.poehali.dev/739af8e4-6a45-4257-afe4-8552e71a4946";
 
 function getToken(): string {
   return localStorage.getItem("hispania_token") || "";
@@ -648,4 +649,73 @@ export async function apiDeleteLibraryItem(id: number) {
 export async function apiAssignLibraryItem(data: { item_id: number; student_ids?: number[]; group_id?: number }) {
   const r = await request(LIBRARY_URL + "?p=assign", { method: "POST", body: JSON.stringify(data) });
   return r.data as { ok?: boolean; assigned?: number; error?: string };
+}
+// ── Карточки слов ─────────────────────────────────────────────────────────────
+
+export interface CardProgress {
+  known: boolean;
+  attempts: number;
+  correct: number;
+}
+
+export interface WordCard {
+  id?: number;
+  front: string;
+  back: string;
+  example?: string;
+  example_ru?: string;
+  progress?: CardProgress;
+}
+
+export interface CardDeck {
+  id: number;
+  title: string;
+  description?: string;
+  lang_from: string;
+  lang_to: string;
+  created_at: string;
+  cards: WordCard[];
+  students: LessonStudent[];
+}
+
+export async function apiGetDecks() {
+  const r = await request(CARDS_URL);
+  return r.data as { decks?: CardDeck[]; ai_ready?: boolean; error?: string };
+}
+
+export async function apiTranslateWords(data: {
+  words: string;
+  lang_from?: string;
+  lang_to?: string;
+  with_examples?: boolean;
+}) {
+  const r = await request(CARDS_URL + "?p=translate", { method: "POST", body: JSON.stringify(data) });
+  return r.data as { cards?: WordCard[]; error?: string };
+}
+
+export async function apiCreateDeck(data: {
+  title: string;
+  description?: string;
+  lang_from?: string;
+  lang_to?: string;
+  cards: WordCard[];
+  student_ids?: number[];
+}) {
+  const r = await request(CARDS_URL, { method: "POST", body: JSON.stringify(data) });
+  return r.data as { ok?: boolean; id?: number; count?: number; error?: string };
+}
+
+export async function apiAssignDeck(data: { deck_id: number; student_ids?: number[]; group_id?: number }) {
+  const r = await request(CARDS_URL + "?p=assign", { method: "POST", body: JSON.stringify(data) });
+  return r.data as { ok?: boolean; students?: number; error?: string };
+}
+
+export async function apiCardProgress(data: { card_id: number; known?: boolean; correct?: boolean }) {
+  const r = await request(CARDS_URL + "?p=progress", { method: "POST", body: JSON.stringify(data) });
+  return r.data as { ok?: boolean; error?: string };
+}
+
+export async function apiDeleteDeck(id: number) {
+  const r = await request(`${CARDS_URL}?id=${id}`, { method: "DELETE", body: JSON.stringify({ id }) });
+  return r.data as { ok?: boolean; error?: string };
 }

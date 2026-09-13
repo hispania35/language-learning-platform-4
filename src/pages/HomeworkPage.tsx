@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { type User } from "@/pages/LoginPage";
-import { apiGetHomework, apiUpdateHomework, apiCreateHomework, apiGetStudents, type HomeworkItem, type StudentInfo } from "@/lib/api";
+import { apiGetHomework, apiUpdateHomework, apiCreateHomework, apiGetStudents, apiGetDecks, apiDeleteDeck, type HomeworkItem, type StudentInfo, type CardDeck } from "@/lib/api";
 import Icon from "@/components/ui/icon";
+import CardDeckDialog from "@/components/cards/CardDeckDialog";
+import DeckStudyDialog from "@/components/cards/DeckStudyDialog";
 
 const tabs = ["Все", "Новые", "В процессе", "Проверяется", "Выполнено"];
 
@@ -26,6 +28,11 @@ export default function HomeworkPage({ user }: { user: User }) {
   const [form, setForm] = useState({ student_id: 0, title: "", description: "", subject: "", due_date: "" });
   const [saving, setSaving] = useState(false);
   const [gradeForm, setGradeForm] = useState<Record<number, { grade: string; comment: string }>>({});
+  const [decks, setDecks] = useState<CardDeck[]>([]);
+  const [aiReady, setAiReady] = useState(false);
+  const [showCards, setShowCards] = useState(false);
+  const [studyDeck, setStudyDeck] = useState<CardDeck | null>(null);
+  const [delDeck, setDelDeck] = useState<CardDeck | null>(null);
 
   const load = () => {
     apiGetHomework().then(res => {
@@ -34,12 +41,24 @@ export default function HomeworkPage({ user }: { user: User }) {
     });
   };
 
+  const loadDecks = () => apiGetDecks().then(res => {
+    if (res.decks) setDecks(res.decks);
+    if (typeof res.ai_ready === "boolean") setAiReady(res.ai_ready);
+  }).catch(() => {});
+
   useEffect(() => {
     load();
+    loadDecks();
     if (user.role === "teacher") {
       apiGetStudents().then(res => { if (res.students) setStudents(res.students); });
     }
   }, [user.role]);
+
+  const removeDeck = async () => {
+    if (!delDeck) return;
+    const res = await apiDeleteDeck(delDeck.id);
+    if (res.ok) { setDelDeck(null); loadDecks(); }
+  };
 
   const filtered = homework.filter(hw => {
     const f = tabMap[activeTab];
@@ -87,11 +106,62 @@ export default function HomeworkPage({ user }: { user: User }) {
     <div className="max-w-4xl mx-auto space-y-5">
       {/* Teacher: create */}
       {user.role === "teacher" && (
-        <button onClick={() => setShowAdd(!showAdd)}
-          className="flex items-center gap-2 px-4 py-2.5 red-accent text-white rounded-xl text-sm font-montserrat font-medium hover:opacity-90 transition-opacity">
-          <Icon name="Plus" size={16} />
-          Создать задание
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => setShowAdd(!showAdd)}
+            className="flex items-center gap-2 px-4 py-2.5 red-accent text-white rounded-xl text-sm font-montserrat font-medium hover:opacity-90 transition-opacity">
+            <Icon name="Plus" size={16} />
+            Создать задание
+          </button>
+          <button onClick={() => setShowCards(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-card text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+            <Icon name="Layers" size={16} className="text-primary" />
+            Создать карточки
+            <span className="flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+              <Icon name="Sparkles" size={10} /> ИИ
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* Наборы карточек */}
+      {!!decks.length && (
+        <div className="bg-card rounded-xl border border-border overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+            <div className="flex items-center gap-2">
+              <Icon name="Layers" size={15} className="text-primary" />
+              <h3 className="font-montserrat font-bold text-sm text-foreground">Карточки слов</h3>
+            </div>
+            <span className="text-xs text-muted-foreground font-ibm">{decks.length} наборов</span>
+          </div>
+          <div className="divide-y divide-border">
+            {decks.map(d => {
+              const known = d.cards.filter(c => c.progress?.known).length;
+              return (
+                <div key={d.id} className="flex items-center gap-3 px-5 py-3 hover:bg-muted/30 transition-colors group">
+                  <button onClick={() => setStudyDeck(d)} className="flex-1 min-w-0 text-left">
+                    <p className="text-sm font-montserrat font-bold text-foreground truncate">{d.title}</p>
+                    <p className="text-xs text-muted-foreground font-ibm">
+                      {d.lang_from} → {d.lang_to} · {d.cards.length} слов
+                      {user.role === "teacher"
+                        ? (d.students.length ? ` · ${d.students.length} учеников` : " · не выдан")
+                        : (known ? ` · выучено ${known}` : "")}
+                    </p>
+                  </button>
+                  <button onClick={() => setStudyDeck(d)}
+                    className="px-3 py-1.5 rounded-lg red-accent text-white text-xs font-montserrat font-bold hover:opacity-90 flex-shrink-0">
+                    {user.role === "teacher" ? "Открыть" : "Учить"}
+                  </button>
+                  {user.role === "teacher" && (
+                    <button onClick={() => setDelDeck(d)} title="Удалить набор"
+                      className="p-1.5 rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <Icon name="Trash2" size={14} className="text-red-500" />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {showAdd && (
@@ -254,6 +324,39 @@ export default function HomeworkPage({ user }: { user: User }) {
               <p className="text-muted-foreground font-ibm text-sm">Заданий нет</p>
             </div>
           )}
+        </div>
+      )}
+
+      {showCards && (
+        <CardDeckDialog students={students} aiReady={aiReady}
+          onClose={() => setShowCards(false)}
+          onDone={() => loadDecks()} />
+      )}
+
+      {studyDeck && (
+        <DeckStudyDialog deck={studyDeck} isTeacher={user.role === "teacher"}
+          onClose={() => { setStudyDeck(null); loadDecks(); }} />
+      )}
+
+      {delDeck && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setDelDeck(null)} />
+          <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 animate-scale-in">
+            <h2 className="font-montserrat font-bold text-base text-foreground mb-1">Удалить набор?</h2>
+            <p className="text-sm text-muted-foreground font-ibm mb-4">
+              «{delDeck.title}» и все {delDeck.cards.length} карточек будут удалены.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setDelDeck(null)}
+                className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+                Отмена
+              </button>
+              <button onClick={removeDeck}
+                className="flex-1 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-bold hover:bg-red-700 transition-colors">
+                Удалить
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
