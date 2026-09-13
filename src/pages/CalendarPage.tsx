@@ -56,6 +56,10 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const [cancelSaving, setCancelSaving] = useState(false);
   const [cancelDone, setCancelDone] = useState("");
   const [pastWarning, setPastWarning] = useState("");
+  const [moveTarget, setMoveTarget] = useState<Lesson | null>(null);
+  const [moveForm, setMoveForm] = useState({ lesson_date: "", lesson_time: "" });
+  const [moveError, setMoveError] = useState("");
+  const [moveSaving, setMoveSaving] = useState(false);
 
   useEffect(() => {
     apiGetCalendar()
@@ -166,6 +170,47 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
     });
     setEditStudents((lesson.students || []).map(s => s.id));
     setEditError("");
+  };
+
+  const openMove = (lesson: Lesson) => {
+    setMoveTarget(lesson);
+    setMoveForm({ lesson_date: lesson.lesson_date, lesson_time: lesson.lesson_time.slice(0, 5) });
+    setMoveError("");
+  };
+
+  const handleSaveMove = async () => {
+    if (!moveTarget) return;
+    if (!moveForm.lesson_date || !moveForm.lesson_time) { setMoveError("Укажите дату и время"); return; }
+    if (isPastSlot(moveForm.lesson_date, moveForm.lesson_time)) {
+      setMoveError("Невозможно перенести урок — это время уже прошло");
+      return;
+    }
+    const busy = lessons.find(l =>
+      l.id !== moveTarget.id &&
+      l.lesson_date === moveForm.lesson_date &&
+      l.lesson_time.slice(0, 5) === moveForm.lesson_time);
+    if (busy) { setMoveError(`В это время уже стоит «${busy.topic}»`); return; }
+
+    setMoveSaving(true);
+    setMoveError("");
+    try {
+      const res = await apiMoveLesson({
+        id: moveTarget.id,
+        lesson_date: moveForm.lesson_date,
+        lesson_time: moveForm.lesson_time,
+      });
+      if (res.ok) {
+        const updated = await apiGetCalendar();
+        if (updated.lessons) setLessons(updated.lessons);
+        setMoveTarget(null);
+        setMoveStatus("saved");
+        setTimeout(() => setMoveStatus("idle"), 1800);
+      } else setMoveError(res.error || "Не удалось перенести занятие");
+    } catch {
+      setMoveError("Нет связи с сервером, попробуйте ещё раз");
+    } finally {
+      setMoveSaving(false);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -845,6 +890,15 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                 </div>
               </button>
 
+              <button onClick={() => { openMove(actionLesson); setActionLesson(null); }}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-border hover:bg-muted transition-colors text-left">
+                <Icon name="CalendarClock" size={18} className="text-primary" />
+                <div>
+                  <p className="text-sm font-montserrat font-bold text-foreground">Перенести занятие</p>
+                  <p className="text-xs text-muted-foreground font-ibm">Только дата и время</p>
+                </div>
+              </button>
+
               <button onClick={() => { setConfirmDelete(actionLesson); setActionLesson(null); }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border border-red-200 hover:bg-red-50 transition-colors text-left">
                 <Icon name="Trash2" size={18} className="text-red-600" />
@@ -852,6 +906,65 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                   <p className="text-sm font-montserrat font-bold text-red-600">Удалить</p>
                   <p className="text-xs text-muted-foreground font-ibm">Занятие будет отменено</p>
                 </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {moveTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => !moveSaving && setMoveTarget(null)} />
+          <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 animate-scale-in">
+            <div className="flex items-start justify-between mb-1">
+              <h2 className="font-montserrat font-bold text-base text-foreground">Перенести занятие</h2>
+              <button onClick={() => setMoveTarget(null)} className="p-1 rounded-md hover:bg-muted transition-colors">
+                <Icon name="X" size={18} className="text-muted-foreground" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground font-ibm mb-4 truncate">{moveTarget.topic}</p>
+
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/40 mb-3">
+              <Icon name="Clock" size={14} className="text-muted-foreground flex-shrink-0" />
+              <p className="text-xs text-muted-foreground font-ibm">
+                Сейчас: {new Date(moveTarget.lesson_date + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} в {moveTarget.lesson_time.slice(0, 5)}
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs font-montserrat font-bold text-muted-foreground">Новая дата</label>
+                <input type="date" value={moveForm.lesson_date} min={todayKey}
+                  onChange={e => { setMoveForm({ ...moveForm, lesson_date: e.target.value }); setMoveError(""); }}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40" />
+              </div>
+              <div>
+                <label className="text-xs font-montserrat font-bold text-muted-foreground">Новое время</label>
+                <input type="time" value={moveForm.lesson_time}
+                  onChange={e => { setMoveForm({ ...moveForm, lesson_time: e.target.value }); setMoveError(""); }}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40" />
+              </div>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground font-ibm mt-2">
+              Тема, тип занятия и ученики останутся прежними
+            </p>
+
+            {moveError && (
+              <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 mt-3">
+                <Icon name="TriangleAlert" size={14} className="text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700 font-ibm">{moveError}</p>
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setMoveTarget(null)} disabled={moveSaving}
+                className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60">
+                Отмена
+              </button>
+              <button onClick={handleSaveMove} disabled={moveSaving}
+                className="flex-1 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60">
+                {moveSaving ? "Переношу..." : "Перенести"}
               </button>
             </div>
           </div>
