@@ -481,25 +481,49 @@ export interface LibraryItem {
   title: string;
   author?: string;
   description?: string;
-  kind: "book" | "audio";
+  kind: "book" | "audio" | "video";
   file_url: string;
   file_name?: string;
   mime?: string;
   size_bytes?: number;
   duration_sec?: number;
   created_at?: string;
+  subject_id?: number | null;
   students?: { id: number; name: string; avatar: string }[];
+}
+
+export interface LibrarySubject {
+  id: number;
+  name: string;
+  color?: string;
 }
 
 export async function apiGetLibrary() {
   const r = await request(LIBRARY_URL);
-  return r.data as { items?: LibraryItem[]; direct_upload?: boolean; max_mb?: number; error?: string };
+  return r.data as {
+    items?: LibraryItem[]; subjects?: LibrarySubject[];
+    direct_upload?: boolean; max_mb?: number; error?: string;
+  };
+}
+
+export async function apiAddLibrarySubject(name: string, color?: string) {
+  const r = await request(LIBRARY_URL + "?p=add_subject", {
+    method: "POST", body: JSON.stringify({ name, color }),
+  });
+  return r.data as { ok?: boolean; id?: number; name?: string; color?: string; error?: string };
+}
+
+export async function apiDeleteLibrarySubject(id: number) {
+  const r = await request(LIBRARY_URL + "?p=del_subject", {
+    method: "POST", body: JSON.stringify({ id }),
+  });
+  return r.data as { ok?: boolean; error?: string };
 }
 
 /** Загрузка большого файла: берём ссылку, льём файл прямо в облако, затем создаём карточку */
 export async function apiUploadLibraryLarge(
   file: File,
-  meta: { title: string; author?: string; description?: string; duration_sec?: number },
+  meta: { title: string; author?: string; description?: string; duration_sec?: number; subject_id?: number | null },
   onProgress?: (percent: number) => void,
 ) {
   const mime = file.type || "application/octet-stream";
@@ -537,6 +561,7 @@ export async function apiUploadLibraryItem(data: {
   file_name: string;
   mime: string;
   duration_sec?: number;
+  subject_id?: number | null;
 }) {
   const r = await request(LIBRARY_URL, { method: "POST", body: JSON.stringify(data) });
   return r.data as { ok?: boolean; id?: number; file_url?: string; kind?: string; error?: string };

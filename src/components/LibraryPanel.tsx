@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
+import LibraryUploadDialog from "@/components/library/LibraryUploadDialog";
+import SubjectsDialog from "@/components/library/SubjectsDialog";
 import {
-  apiGetLibrary, apiUploadLibraryItem, apiUploadLibraryLarge, apiDeleteLibraryItem, apiAssignLibraryItem,
+  apiGetLibrary, apiDeleteLibraryItem, apiAssignLibraryItem,
   apiGetStudents, apiGetGroups,
-  type LibraryItem, type StudentInfo, type StudentGroup,
+  type LibraryItem, type LibrarySubject, type StudentInfo, type StudentGroup,
 } from "@/lib/api";
 
 const fmtSize = (b?: number) => {
@@ -13,27 +15,27 @@ const fmtSize = (b?: number) => {
   return `${(b / 1024 / 1024 / 1024).toFixed(2)} ГБ`;
 };
 
-const SMALL_MB = 20;
-
-const kindIcon = (k: string) => (k === "audio" ? "Music" : "BookOpen");
+const kindIcon = (k: string) => (k === "audio" ? "Music" : k === "video" ? "Video" : "BookOpen");
+const kindLabel = (k: string) => (k === "audio" ? "Аудио" : k === "video" ? "Видео" : "Книга");
+const kindStyle = (k: string) =>
+  k === "audio" ? "bg-purple-100 text-purple-700"
+    : k === "video" ? "bg-blue-100 text-blue-700"
+      : "bg-red-100 text-red-700";
 
 export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const [items, setItems] = useState<LibraryItem[]>([]);
+  const [subjects, setSubjects] = useState<LibrarySubject[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<"all" | "book" | "audio">("all");
+  const [tab, setTab] = useState<"all" | "book" | "audio" | "video">("all");
+  const [subjectTab, setSubjectTab] = useState<number | "all">("all");
   const [err, setErr] = useState("");
   const [msg, setMsg] = useState("");
 
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ title: "", author: "", description: "" });
-  const [file, setFile] = useState<{ name: string; mime: string; data: string; size: number } | null>(null);
-  const [rawFile, setRawFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [showSubjects, setShowSubjects] = useState(false);
   const [maxMb, setMaxMb] = useState(60);
   const [directUpload, setDirectUpload] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   const [assignItem, setAssignItem] = useState<LibraryItem | null>(null);
   const [students, setStudents] = useState<StudentInfo[]>([]);
@@ -49,6 +51,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
     apiGetLibrary()
       .then(res => {
         if (res.items) setItems(res.items);
+        if (res.subjects) setSubjects(res.subjects);
         if (res.max_mb) setMaxMb(res.max_mb);
         setDirectUpload(!!res.direct_upload);
       })
@@ -63,50 +66,6 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
     apiGetStudents().then(r => { if (r.students) setStudents(r.students); }).catch(() => {});
     apiGetGroups().then(r => { if (r.groups) setGroups(r.groups); }).catch(() => {});
   }, [isTeacher]);
-
-  const pickFile = (f: File) => {
-    if (f.size > maxMb * 1024 * 1024) { setErr(`Файл больше ${maxMb} МБ`); return; }
-    setErr("");
-    setRawFile(f);
-    setForm(prev => ({ ...prev, title: prev.title || f.name.replace(/\.[^.]+$/, "") }));
-
-    // Маленькие файлы шлём через сервер, большие — напрямую в облако
-    if (!directUpload || f.size <= SMALL_MB * 1024 * 1024) {
-      const r = new FileReader();
-      r.onload = () => setFile({ name: f.name, mime: f.type || "application/octet-stream", data: String(r.result), size: f.size });
-      r.readAsDataURL(f);
-    } else {
-      setFile({ name: f.name, mime: f.type || "application/octet-stream", data: "", size: f.size });
-    }
-  };
-
-  const resetForm = () => {
-    setShowAdd(false); setFile(null); setRawFile(null); setProgress(0);
-    setForm({ title: "", author: "", description: "" });
-  };
-
-  const upload = async () => {
-    if (!form.title.trim()) { setErr("Укажите название"); return; }
-    if (!file || !rawFile) { setErr("Прикрепите файл"); return; }
-    setUploading(true); setErr(""); setProgress(0);
-    const meta = { title: form.title.trim(), author: form.author.trim(), description: form.description.trim() };
-    try {
-      const big = directUpload && rawFile.size > SMALL_MB * 1024 * 1024;
-      const res = big
-        ? await apiUploadLibraryLarge(rawFile, meta, setProgress)
-        : await apiUploadLibraryItem({ ...meta, file_data: file.data, file_name: file.name, mime: file.mime });
-      if (res.ok) {
-        resetForm();
-        setMsg("Файл загружен в библиотеку");
-        setTimeout(() => setMsg(""), 4000);
-        load();
-      } else setErr(res.error || "Не удалось загрузить");
-    } catch {
-      setErr("Загрузка прервалась. Проверьте интернет и попробуйте снова.");
-    } finally {
-      setUploading(false);
-    }
-  };
 
   const doAssign = async () => {
     if (!assignItem) return;
@@ -139,13 +98,14 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
 
   const shown = items.filter(i => {
     const okTab = tab === "all" || i.kind === tab;
+    const okSubject = subjectTab === "all" || i.subject_id === subjectTab;
     const okSearch = !search ||
       i.title.toLowerCase().includes(search.toLowerCase()) ||
       (i.author || "").toLowerCase().includes(search.toLowerCase());
-    return okTab && okSearch;
+    return okTab && okSubject && okSearch;
   });
 
-  const field = "mt-1 w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40";
+  const subjectById = (id?: number | null) => subjects.find(s => s.id === id);
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -158,7 +118,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
         </div>
 
         <div className="flex gap-1 bg-muted/40 rounded-xl p-1">
-          {([["all", "Все"], ["book", "Книги"], ["audio", "Аудио"]] as const).map(([v, label]) => (
+          {([["all", "Все"], ["book", "Книги"], ["audio", "Аудио"], ["video", "Видео"]] as const).map(([v, label]) => (
             <button key={v} onClick={() => setTab(v)}
               className={`px-3 py-1.5 rounded-lg text-sm font-montserrat font-medium transition-all
                 ${tab === v ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
@@ -175,6 +135,31 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
           </button>
         )}
       </div>
+
+      {(subjects.length > 0 || isTeacher) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button onClick={() => setSubjectTab("all")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-montserrat font-bold border transition-colors
+              ${subjectTab === "all" ? "bg-foreground text-background border-transparent" : "text-foreground border-border hover:bg-muted"}`}>
+            Все предметы
+          </button>
+          {subjects.map(s => (
+            <button key={s.id} onClick={() => setSubjectTab(s.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-montserrat font-bold border transition-colors
+                ${subjectTab === s.id ? "text-white border-transparent" : "text-foreground border-border hover:bg-muted"}`}
+              style={subjectTab === s.id ? { background: s.color || "#c0392b" } : undefined}>
+              {s.name}
+            </button>
+          ))}
+          {isTeacher && (
+            <button onClick={() => setShowSubjects(true)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-montserrat font-bold border border-dashed border-border text-muted-foreground hover:bg-muted transition-colors">
+              <Icon name="Settings2" size={13} />
+              Предметы
+            </button>
+          )}
+        </div>
+      )}
 
       {err && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200">
@@ -206,8 +191,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
           {shown.map(item => (
             <div key={item.id} className="bg-card rounded-xl border border-border p-4">
               <div className="flex items-start gap-3">
-                <span className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0
-                  ${item.kind === "audio" ? "bg-purple-100 text-purple-700" : "bg-red-100 text-red-700"}`}>
+                <span className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${kindStyle(item.kind)}`}>
                   <Icon name={kindIcon(item.kind)} size={20} />
                 </span>
 
@@ -217,23 +201,33 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
                   {item.description && (
                     <p className="text-xs text-muted-foreground font-ibm mt-1 line-clamp-2">{item.description}</p>
                   )}
-                  <p className="text-[11px] text-muted-foreground font-ibm mt-1">
-                    {item.kind === "audio" ? "Аудио" : "Книга"}
-                    {item.size_bytes ? ` · ${fmtSize(item.size_bytes)}` : ""}
-                    {item.students?.length ? ` · выдана ${item.students.length}` : ""}
+                  <p className="text-[11px] text-muted-foreground font-ibm mt-1 flex items-center gap-1.5 flex-wrap">
+                    {subjectById(item.subject_id) && (
+                      <span className="px-1.5 py-0.5 rounded text-white font-montserrat font-bold text-[10px]"
+                        style={{ background: subjectById(item.subject_id)?.color || "#c0392b" }}>
+                        {subjectById(item.subject_id)?.name}
+                      </span>
+                    )}
+                    <span>
+                      {kindLabel(item.kind)}
+                      {item.size_bytes ? ` · ${fmtSize(item.size_bytes)}` : ""}
+                      {item.students?.length ? ` · выдана ${item.students.length}` : ""}
+                    </span>
                   </p>
                 </div>
               </div>
 
-              {item.kind === "audio" && (
+              {(item.kind === "audio" || item.kind === "video") && (
                 <div className="mt-3">
                   {playing === item.id ? (
-                    <audio controls autoPlay src={item.file_url} className="w-full h-9" />
+                    item.kind === "video"
+                      ? <video controls autoPlay src={item.file_url} className="w-full rounded-lg bg-black max-h-64" />
+                      : <audio controls autoPlay src={item.file_url} className="w-full h-9" />
                   ) : (
                     <button onClick={() => setPlaying(item.id)}
                       className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
                       <Icon name="Play" size={15} />
-                      Слушать
+                      {item.kind === "video" ? "Смотреть" : "Слушать"}
                     </button>
                   )}
                 </div>
@@ -243,7 +237,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
                 <a href={item.file_url} target="_blank" rel="noreferrer"
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
                   <Icon name="Download" size={14} />
-                  {item.kind === "audio" ? "Скачать" : "Открыть"}
+                  {item.kind === "book" ? "Открыть" : "Скачать"}
                 </a>
 
                 {isTeacher && (
@@ -275,74 +269,22 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
         </div>
       )}
 
-      {/* Загрузка */}
       {showAdd && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/40" onClick={() => !uploading && resetForm()} />
-          <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-md p-5 animate-scale-in max-h-[90vh] overflow-y-auto">
-            <h2 className="font-montserrat font-bold text-base text-foreground mb-4">Загрузить в библиотеку</h2>
+        <LibraryUploadDialog
+          subjects={subjects}
+          maxMb={maxMb}
+          directUpload={directUpload}
+          onClose={() => setShowAdd(false)}
+          onDone={() => { load(); setMsg("Файлы загружены в библиотеку"); setTimeout(() => setMsg(""), 4000); }}
+        />
+      )}
 
-            <input ref={fileRef} type="file" className="hidden"
-              accept=".pdf,.epub,.fb2,.doc,.docx,.txt,.zip,audio/*,video/*"
-              onChange={e => { const f = e.target.files?.[0]; if (f) pickFile(f); e.target.value = ""; }} />
-
-            <button onClick={() => fileRef.current?.click()}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/40 transition-colors text-left">
-              <Icon name={file ? (file.mime.startsWith("audio/") ? "Music" : "FileText") : "Upload"}
-                size={20} className="text-primary flex-shrink-0" />
-              <span className="min-w-0">
-                <span className="block text-sm font-montserrat font-bold text-foreground truncate">
-                  {file ? file.name : "Выбрать файл"}
-                </span>
-                <span className="block text-xs text-muted-foreground font-ibm">
-                  {file ? fmtSize(file.size) : `PDF, EPUB, FB2, DOCX, аудио и видео · до ${maxMb} МБ`}
-                </span>
-              </span>
-            </button>
-
-            <div className="mt-3 space-y-3">
-              <div>
-                <label className="text-xs font-montserrat font-bold text-muted-foreground">Название</label>
-                <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })}
-                  placeholder="Español en marcha A1" className={field} />
-              </div>
-              <div>
-                <label className="text-xs font-montserrat font-bold text-muted-foreground">Автор</label>
-                <input value={form.author} onChange={e => setForm({ ...form, author: e.target.value })}
-                  placeholder="Francisca Castro" className={field} />
-              </div>
-              <div>
-                <label className="text-xs font-montserrat font-bold text-muted-foreground">Описание</label>
-                <textarea rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })}
-                  placeholder="Учебник для начинающих" className={field + " resize-none"} />
-              </div>
-            </div>
-
-            {uploading && (
-              <div className="mt-3">
-                <div className="h-2 rounded-full bg-muted overflow-hidden">
-                  <div className="h-full red-accent transition-all duration-200" style={{ width: `${progress || 3}%` }} />
-                </div>
-                <p className="text-xs text-muted-foreground font-ibm mt-1.5">
-                  {progress > 0 && progress < 100 ? `Загружено ${progress}%` : "Обработка файла..."}
-                </p>
-              </div>
-            )}
-
-            {err && <p className="text-xs text-red-600 font-ibm mt-2">{err}</p>}
-
-            <div className="flex gap-2 mt-4">
-              <button onClick={resetForm} disabled={uploading}
-                className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60">
-                Отмена
-              </button>
-              <button onClick={upload} disabled={uploading}
-                className="flex-1 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60">
-                {uploading ? "Загружаю..." : "Загрузить"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {showSubjects && (
+        <SubjectsDialog
+          subjects={subjects}
+          onClose={() => setShowSubjects(false)}
+          onChanged={load}
+        />
       )}
 
       {/* Выдача */}

@@ -19,7 +19,7 @@ CORS = {
 }
 
 MAX_MB = 60           # прямая загрузка через функцию (мелкие файлы)
-MAX_DIRECT_MB = 300  # загрузка браузером напрямую в облако
+MAX_DIRECT_MB = 2048  # загрузка браузером напрямую в облако (видео до 2 ГБ)
 
 
 def resp(code, data):
@@ -73,6 +73,24 @@ def ext_signed_url(key, file_name=None):
     )
 
 
+def kind_of(mime):
+    if mime.startswith("audio/"):
+        return "audio"
+    if mime.startswith("video/"):
+        return "video"
+    return "book"
+
+
+def subject_or_none(conn, user_id, raw):
+    if not raw:
+        return None
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM library_subjects WHERE id=%s AND teacher_id=%s", (int(raw), user_id))
+    row = cur.fetchone()
+    cur.close()
+    return row[0] if row else None
+
+
 def auth(event, conn):
     token = (event.get("headers") or {}).get("X-Auth-Token") or (event.get("headers") or {}).get("x-auth-token")
     if not token:
@@ -109,6 +127,10 @@ def handler(event: dict, context) -> dict:
             return list_items(conn, user_id, role)
         if method == "POST" and action == "assign":
             return assign_item(event, conn, user_id, role)
+        if method == "POST" and action == "add_subject":
+            return add_subject(event, conn, user_id, role)
+        if method == "POST" and action == "del_subject":
+            return del_subject(event, conn, user_id, role)
         if method == "POST" and action == "setup_cors":
             conn.close()
             if role != "teacher":
@@ -144,14 +166,14 @@ def list_items(conn, user_id, role):
     if role == "teacher":
         cur.execute(
             """SELECT id, title, author, description, kind, file_url, file_name,
-                      mime, size_bytes, duration_sec, created_at, file_key, storage
+                      mime, size_bytes, duration_sec, created_at, file_key, storage, subject_id
                FROM library_items WHERE teacher_id=%s ORDER BY created_at DESC""",
             (user_id,)
         )
     else:
         cur.execute(
             """SELECT i.id, i.title, i.author, i.description, i.kind, i.file_url, i.file_name,
-                      i.mime, i.size_bytes, i.duration_sec, i.created_at, i.file_key, i.storage
+                      i.mime, i.size_bytes, i.duration_sec, i.created_at, i.file_key, i.storage, i.subject_id
                FROM library_items i JOIN library_assignments a ON a.item_id=i.id
                WHERE a.student_id=%s ORDER BY a.created_at DESC""",
             (user_id,)
@@ -182,10 +204,66 @@ def list_items(conn, user_id, role):
         it.pop("file_key", None)
         it.pop("storage", None)
 
+    if role == "teacher":
+        cur.execute("SELECT id, name, color FROM library_subjects WHERE teacher_id=%s ORDER BY name", (user_id,))
+    else:
+        sids = [str(i["subject_id"]) for i in items if i.get("subject_id")]
+        if sids:
+            cur.execute(f"SELECT id, name, color FROM library_subjects WHERE id IN ({','.join(sids)}) ORDER BY name")
+        else:
+            cur.execute("SELECT id, name, color FROM library_subjects WHERE 1=0")
+    subjects = [{"id": r[0], "name": r[1], "color": r[2]} for r in cur.fetchall()]
+
     cur.close()
     conn.close()
-    return resp(200, {"items": items, "direct_upload": direct,
+    return resp(200, {"items": items, "subjects": subjects, "direct_upload": direct,
                       "max_mb": MAX_DIRECT_MB if direct else MAX_MB})
+
+
+def add_subject(event, conn, user_id, role):
+    """Добавить новый предмет (язык) в библиотеку."""
+    if role != "teacher":
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    body = json.loads(event.get("body") or "{}")
+    name = (body.get("name") or "").strip()[:80]
+    if not name:
+        conn.close()
+        return resp(400, {"error": "Укажите название предмета"})
+    color = (body.get("color") or "#c0392b")[:20]
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM library_subjects WHERE teacher_id=%s AND lower(name)=lower(%s)", (user_id, name))
+    row = cur.fetchone()
+    if row:
+        cur.close()
+        conn.close()
+        return resp(200, {"ok": True, "id": row[0], "name": name, "color": color})
+    cur.execute("INSERT INTO library_subjects (teacher_id, name, color) VALUES (%s,%s,%s) RETURNING id",
+                (user_id, name, color))
+    sid = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return resp(200, {"ok": True, "id": sid, "name": name, "color": color})
+
+
+def del_subject(event, conn, user_id, role):
+    """Удалить предмет. Файлы остаются, но теряют привязку."""
+    if role != "teacher":
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    body = json.loads(event.get("body") or "{}")
+    sid = body.get("id")
+    if not sid:
+        conn.close()
+        return resp(400, {"error": "Укажите предмет"})
+    cur = conn.cursor()
+    cur.execute("UPDATE library_items SET subject_id=NULL WHERE subject_id=%s AND teacher_id=%s", (int(sid), user_id))
+    cur.execute("DELETE FROM library_subjects WHERE id=%s AND teacher_id=%s", (int(sid), user_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return resp(200, {"ok": True})
 
 
 def upload_url(event, conn, user_id, role):
@@ -233,17 +311,19 @@ def confirm_upload(event, conn, user_id, role):
 
     file_name = (body.get("file_name") or "file").strip()
     mime = body.get("mime") or "application/octet-stream"
-    kind = "audio" if mime.startswith("audio/") else "book"
+    kind = kind_of(mime)
     url = ext_public_url(key)
+    subject_id = subject_or_none(conn, user_id, body.get("subject_id"))
 
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO library_items
            (teacher_id, title, author, description, kind, file_url, file_name, file_key,
-            mime, size_bytes, duration_sec, storage)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'external') RETURNING id""",
+            mime, size_bytes, duration_sec, storage, subject_id)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'external',%s) RETURNING id""",
         (user_id, title, (body.get("author") or "").strip(), (body.get("description") or "").strip(),
-         kind, url, file_name, key, mime, int(body.get("size") or 0), int(body.get("duration_sec") or 0))
+         kind, url, file_name, key, mime, int(body.get("size") or 0), int(body.get("duration_sec") or 0),
+         subject_id)
     )
     item_id = cur.fetchone()[0]
     conn.commit()
@@ -273,9 +353,10 @@ def upload_item(event, conn, user_id, role):
 
     file_name = (body.get("file_name") or "file").strip()
     mime = body.get("mime") or "application/octet-stream"
-    kind = "audio" if mime.startswith("audio/") else "book"
+    kind = kind_of(mime)
     ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else "bin"
     key = f"library/{user_id}/{uuid.uuid4().hex}.{ext}"
+    subject_id = subject_or_none(conn, user_id, body.get("subject_id"))
 
     s3_client().put_object(Bucket="files", Key=key, Body=raw, ContentType=mime)
     url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
@@ -283,10 +364,11 @@ def upload_item(event, conn, user_id, role):
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO library_items
-           (teacher_id, title, author, description, kind, file_url, file_name, file_key, mime, size_bytes, duration_sec)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+           (teacher_id, title, author, description, kind, file_url, file_name, file_key,
+            mime, size_bytes, duration_sec, subject_id)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
         (user_id, title, (body.get("author") or "").strip(), (body.get("description") or "").strip(),
-         kind, url, file_name, key, mime, len(raw), int(body.get("duration_sec") or 0))
+         kind, url, file_name, key, mime, len(raw), int(body.get("duration_sec") or 0), subject_id)
     )
     item_id = cur.fetchone()[0]
     conn.commit()
