@@ -55,6 +55,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const [cancelReason, setCancelReason] = useState("");
   const [cancelSaving, setCancelSaving] = useState(false);
   const [cancelDone, setCancelDone] = useState("");
+  const [pastWarning, setPastWarning] = useState("");
 
   useEffect(() => {
     apiGetCalendar()
@@ -121,6 +122,11 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
     const lesson = lessons.find(l => l.id === lessonId);
     if (!lesson) return;
     if (findLesson(newDate, newTime)) return;
+    if (newDate < todayKey || (newDate === todayKey && newTime <= nowTime)) {
+      setPastWarning("Невозможно перенести урок — это время уже прошло");
+      setTimeout(() => setPastWarning(""), 5000);
+      return;
+    }
     const prev = lessons;
     setLessons(prev.map(l => l.id === lessonId ? { ...l, lesson_date: newDate, lesson_time: newTime } : l));
     setSelected({ date: newDate, time: newTime });
@@ -167,6 +173,10 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
     if (!editForm.topic.trim()) { setEditError("Заполните тему урока — например «Урок с Дашей»"); return; }
     if (!editForm.lesson_date) { setEditError("Выберите дату занятия"); return; }
     if (!editForm.lesson_time) { setEditError("Укажите время занятия"); return; }
+    if (isPastSlot(editForm.lesson_date, editForm.lesson_time)) {
+      setEditError("Невозможно назначить урок — это время уже прошло");
+      return;
+    }
     if (editStudents.length === 0) { setEditError("Выберите хотя бы одного ученика"); return; }
     setEditError("");
     setEditSaving(true);
@@ -217,10 +227,21 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
     }
   };
 
+  const isPastSlot = (dateKey: string, time: string) =>
+    dateKey < todayKey || (dateKey === todayKey && time <= nowTime);
+
   const handleSlotClick = (dateKey: string, time: string) => {
     const lesson = findLesson(dateKey, time);
     setSelected({ date: dateKey, time });
+    if (!lesson && isTeacher && isPastSlot(dateKey, time)) {
+      setShowAdd(false);
+      setFormError("");
+      setPastWarning("Невозможно назначить урок — это время уже прошло");
+      setTimeout(() => setPastWarning(""), 5000);
+      return;
+    }
     if (!lesson && isTeacher) {
+      setPastWarning("");
       setForm({
         ...form,
         topic: form.topic.trim() || nextTopic(),
@@ -245,6 +266,10 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
     }
     if (!form.lesson_time) {
       setFormError("Укажите время занятия");
+      return;
+    }
+    if (isPastSlot(form.lesson_date, form.lesson_time)) {
+      setFormError("Невозможно назначить урок — это время уже прошло");
       return;
     }
     if (selectedStudents.length === 0) {
@@ -325,6 +350,14 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
             </div>
           )}
 
+          {pastWarning && (
+            <div className="mx-4 mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200">
+              <Icon name="TriangleAlert" size={14} className="text-red-600 flex-shrink-0" />
+              <p className="text-xs text-red-700 font-ibm flex-1">{pastWarning}</p>
+              <button onClick={() => setPastWarning("")}><Icon name="X" size={13} className="text-red-500" /></button>
+            </div>
+          )}
+
           {isTeacher && (
             <div className="px-4 py-2 border-b border-border flex items-center gap-2 text-xs font-ibm">
               {moveStatus === "saving" ? (
@@ -366,6 +399,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                         const isSelected = selected?.date === dateKey && selected?.time === time;
                         const cellKey = `${dateKey}_${time}`;
                         const isDropOver = dropTarget === cellKey;
+                        const slotGone = isPastSlot(dateKey, time);
 
                         if (isPast && !lesson) {
                           return <div key={time} className="h-12 rounded-md bg-muted/30" />;
@@ -374,7 +408,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                         return (
                           <div
                             key={time}
-                            onDragOver={e => { if (isTeacher && dragId !== null && !lesson) { e.preventDefault(); setDropTarget(cellKey); } }}
+                            onDragOver={e => { if (isTeacher && dragId !== null && !lesson && !slotGone) { e.preventDefault(); setDropTarget(cellKey); } }}
                             onDragLeave={() => setDropTarget(prev => prev === cellKey ? null : prev)}
                             onDrop={e => {
                               e.preventDefault();
@@ -387,7 +421,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                             <button
                               title={lesson
                                 ? `${lesson.topic} · ${time}${isTeacher ? " — нажмите, чтобы начать урок или изменить" : ""}`
-                                : "Свободное время"}
+                                : slotGone ? "Время уже прошло" : "Свободное время"}
                               draggable={isTeacher && !!lesson}
                               onDragStart={() => lesson && setDragId(lesson.id)}
                               onDragEnd={() => { setDragId(null); setDropTarget(null); }}
@@ -404,7 +438,9 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                   ? (isPast || (dateKey === todayKey && time < nowTime)
                                       ? "bg-gray-200 text-gray-500 hover:bg-gray-300 cursor-grab active:cursor-grabbing"
                                       : "bg-orange-300 text-orange-900 hover:bg-orange-400 cursor-grab active:cursor-grabbing")
-                                  : "bg-green-500 text-white hover:bg-green-600"}
+                                  : slotGone
+                                    ? "bg-muted text-muted-foreground/60 cursor-not-allowed"
+                                    : "bg-green-500 text-white hover:bg-green-600"}
                                 ${isSelected ? "ring-2 ring-offset-1 ring-primary" : ""}
                                 ${dragId === lesson?.id ? "opacity-40" : ""}`}
                             >
