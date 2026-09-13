@@ -9,6 +9,27 @@ const MONTHS_GEN = ["января", "февраля", "марта", "апрел�
 
 const DEFAULT_SLOTS = ["10:00", "12:00", "14:00", "16:00", "18:00"];
 
+type Hours = { from: number; to: number; step: number };
+const DEFAULT_HOURS: Hours = { from: 10, to: 18, step: 2 };
+const HOURS_KEY = "calendar_work_hours";
+
+const buildSlots = (h: Hours) => {
+  const out: string[] = [];
+  const step = Math.max(1, h.step);
+  for (let t = h.from; t <= h.to; t += step) out.push(`${String(t).padStart(2, "0")}:00`);
+  return out.length ? out : DEFAULT_SLOTS;
+};
+
+const loadHours = (): Hours | null => {
+  try {
+    const raw = localStorage.getItem(HOURS_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (typeof p?.from !== "number" || typeof p?.to !== "number") return null;
+    return { from: p.from, to: p.to, step: p.step || 1 };
+  } catch { return null; }
+};
+
 const typeColors: Record<string, string> = {
   "Грамматика": "bg-primary/15 text-primary border-primary/20",
   "Практика": "bg-green-100 text-green-700 border-green-200",
@@ -61,6 +82,10 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const [moveError, setMoveError] = useState("");
   const [moveSaving, setMoveSaving] = useState(false);
   const [extraSlots, setExtraSlots] = useState<string[]>([]);
+  const [hours, setHours] = useState<Hours>(() => loadHours() || DEFAULT_HOURS);
+  const [showHours, setShowHours] = useState(false);
+  const [hoursForm, setHoursForm] = useState<Hours>(hours);
+  const [hoursError, setHoursError] = useState("");
 
   useEffect(() => {
     apiGetCalendar()
@@ -91,7 +116,19 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const weekLessonTimes = visibleLessons
     .filter(l => l.lesson_date >= weekFrom && l.lesson_date <= weekTo)
     .map(l => l.lesson_time.slice(0, 5));
-  const TIME_SLOTS = Array.from(new Set([...DEFAULT_SLOTS, ...weekLessonTimes, ...extraSlots])).sort();
+  const TIME_SLOTS = Array.from(new Set([...buildSlots(hours), ...weekLessonTimes, ...extraSlots])).sort();
+
+  const saveHours = () => {
+    const { from, to, step } = hoursForm;
+    if (from < 0 || from > 23 || to < 0 || to > 23) { setHoursError("Часы должны быть от 0 до 23"); return; }
+    if (to < from) { setHoursError("Конец рабочего дня должен быть позже начала"); return; }
+    if (step < 1 || step > 6) { setHoursError("Шаг — от 1 до 6 часов"); return; }
+    const next = { from, to, step };
+    setHours(next);
+    try { localStorage.setItem(HOURS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    setShowHours(false);
+    setHoursError("");
+  };
 
   // Ближайшее свободное время в дне: берём час после последнего занятия/слота
   const suggestTime = (dateKey: string) => {
@@ -427,6 +464,11 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
               ) : (
                 <span className="flex items-center gap-1.5 text-muted-foreground"><Icon name="Move" size={13} />Клик по занятию — изменить или удалить, перетаскивание — перенос</span>
               )}
+              <button onClick={() => { setHoursForm(hours); setHoursError(""); setShowHours(true); }}
+                className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors font-montserrat font-medium flex-shrink-0">
+                <Icon name="Settings2" size={13} />
+                Рабочие часы
+              </button>
             </div>
           )}
 
@@ -934,6 +976,80 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                   <p className="text-sm font-montserrat font-bold text-red-600">Удалить</p>
                   <p className="text-xs text-muted-foreground font-ibm">Занятие будет отменено</p>
                 </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHours && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setShowHours(false)} />
+          <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 animate-scale-in">
+            <div className="flex items-start justify-between mb-1">
+              <h2 className="font-montserrat font-bold text-base text-foreground">Рабочие часы</h2>
+              <button onClick={() => setShowHours(false)} className="p-1 rounded-md hover:bg-muted transition-colors">
+                <Icon name="X" size={18} className="text-muted-foreground" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground font-ibm mb-4">Сетка недели будет показывать только эти часы</p>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-xs font-montserrat font-bold text-muted-foreground">Начало</label>
+                <select value={hoursForm.from}
+                  onChange={e => { setHoursForm({ ...hoursForm, from: Number(e.target.value) }); setHoursError(""); }}
+                  className="mt-1 w-full px-2 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40">
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-montserrat font-bold text-muted-foreground">Конец</label>
+                <select value={hoursForm.to}
+                  onChange={e => { setHoursForm({ ...hoursForm, to: Number(e.target.value) }); setHoursError(""); }}
+                  className="mt-1 w-full px-2 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40">
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-montserrat font-bold text-muted-foreground">Шаг</label>
+                <select value={hoursForm.step}
+                  onChange={e => { setHoursForm({ ...hoursForm, step: Number(e.target.value) }); setHoursError(""); }}
+                  className="mt-1 w-full px-2 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40">
+                  {[1, 2, 3, 4].map(s => <option key={s} value={s}>{s} ч</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="mt-3 px-3 py-2 rounded-lg bg-muted/40">
+              <p className="text-[11px] font-montserrat font-bold text-muted-foreground mb-1">Получится {buildSlots(hoursForm).length} строк:</p>
+              <div className="flex flex-wrap gap-1">
+                {buildSlots(hoursForm).slice(0, 12).map(t => (
+                  <span key={t} className="text-[10px] font-ibm px-1.5 py-0.5 rounded bg-green-100 text-green-700">{t}</span>
+                ))}
+                {buildSlots(hoursForm).length > 12 && <span className="text-[10px] font-ibm text-muted-foreground">...</span>}
+              </div>
+            </div>
+
+            {hoursError && (
+              <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-50 border border-red-200 mt-3">
+                <Icon name="TriangleAlert" size={14} className="text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-700 font-ibm">{hoursError}</p>
+              </div>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setHoursForm(DEFAULT_HOURS)}
+                className="px-3 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-muted-foreground hover:bg-muted transition-colors">
+                Сбросить
+              </button>
+              <button onClick={saveHours}
+                className="flex-1 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity">
+                Сохранить
               </button>
             </div>
           </div>
