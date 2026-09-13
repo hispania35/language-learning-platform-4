@@ -25,6 +25,14 @@ interface TopBarProps {
   onSettingsOpenChange?: (open: boolean) => void;
 }
 
+const notifyMeta: Record<string, { page: Page; icon: string; cls: string }> = {
+  calendar: { page: "calendar", icon: "CalendarDays", cls: "bg-primary/10 text-primary" },
+  homework: { page: "homework", icon: "ClipboardList", cls: "bg-amber-100 text-amber-700" },
+  material: { page: "materials", icon: "FolderOpen", cls: "bg-blue-100 text-blue-700" },
+  chat: { page: "chat", icon: "MessageSquare", cls: "bg-green-100 text-green-700" },
+  system: { page: "profile", icon: "Settings", cls: "bg-muted text-muted-foreground" },
+};
+
 export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavigate, settingsOpen, onSettingsOpenChange }: TopBarProps) {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -69,6 +77,15 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
     setShowUserMenu(false);
     if (!showNotifications && unread > 0) {
       apiMarkNotificationsRead().then(() => setUnread(0));
+    }
+  };
+
+  const openNotification = (n: Notification) => {
+    const meta = notifyMeta[n.type] || notifyMeta.system;
+    setShowNotifications(false);
+    onNavigate(meta.page);
+    if (!n.is_read) {
+      setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
     }
   };
 
@@ -219,17 +236,29 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
             <div className="divide-y divide-border max-h-72 overflow-y-auto">
               {notifications.length === 0 ? (
                 <div className="px-4 py-6 text-center text-sm text-muted-foreground font-ibm">Нет уведомлений</div>
-              ) : notifications.map((n) => (
-                <div key={n.id} className={`px-4 py-3 hover:bg-muted/50 transition-colors cursor-pointer ${!n.is_read ? "bg-primary/5" : ""}`}>
-                  <div className="flex gap-3 items-start">
-                    <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${!n.is_read ? "bg-accent" : "bg-transparent"}`} />
-                    <div className="min-w-0">
-                      <p className="text-sm text-foreground font-ibm leading-snug">{n.text}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{formatTime(n.created_at)}</p>
+              ) : notifications.map((n) => {
+                const meta = notifyMeta[n.type] || notifyMeta.system;
+                return (
+                  <button key={n.id} onClick={() => openNotification(n)}
+                    className={`w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors group ${!n.is_read ? "bg-primary/5" : ""}`}>
+                    <div className="flex gap-2.5 items-start">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${meta.cls}`}>
+                        <Icon name={meta.icon} size={14} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-foreground font-ibm leading-snug">{n.text}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                          {formatTime(n.created_at)}
+                          <span className="text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                            · открыть {pageTitles[meta.page].toLowerCase()}
+                          </span>
+                        </p>
+                      </div>
+                      {!n.is_read && <div className="w-2 h-2 rounded-full bg-accent mt-1.5 flex-shrink-0" />}
                     </div>
-                  </div>
-                </div>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
