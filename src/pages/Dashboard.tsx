@@ -3,12 +3,13 @@ import { type Page } from "@/App";
 import { type User } from "@/pages/LoginPage";
 import Icon from "@/components/ui/icon";
 import {
-  apiGetCalendar, apiGetHomework, apiGetMaterials, apiGetLeaderboard,
-  type Lesson, type HomeworkItem, type Material, type LeaderboardEntry,
+  apiGetCalendar, apiGetHomework, apiGetMaterials, apiGetLeaderboard, apiGetChatContacts,
+  type Lesson, type HomeworkItem, type Material, type LeaderboardEntry, type ChatContact,
 } from "@/lib/api";
 
 interface DashboardProps {
   onNavigate: (page: Page) => void;
+  onOpenChat?: (peerId?: number) => void;
   user: User;
 }
 
@@ -52,13 +53,29 @@ const dueLabel = (iso?: string) => {
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
 };
 
-export default function Dashboard({ onNavigate, user }: DashboardProps) {
+const chatTime = (iso?: string | null) => {
+  if (!iso) return "";
+  const d = new Date(iso.replace(" ", "T"));
+  if (isNaN(d.getTime())) return "";
+  const key = toKey(d);
+  const now = new Date();
+  if (key === toKey(now)) return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const yest = new Date(now); yest.setDate(now.getDate() - 1);
+  if (key === toKey(yest)) return "вчера";
+  return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+};
+
+export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardProps) {
   const isTeacher = user.role === "teacher";
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [homework, setHomework] = useState<HomeworkItem[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [board, setBoard] = useState<LeaderboardEntry[]>([]);
+  const [contacts, setContacts] = useState<ChatContact[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const loadChat = () =>
+    apiGetChatContacts().then(r => { if (r.contacts) setContacts(r.contacts); }).catch(() => {});
 
   useEffect(() => {
     Promise.allSettled([
@@ -66,8 +83,21 @@ export default function Dashboard({ onNavigate, user }: DashboardProps) {
       apiGetHomework().then(r => { if (r.homework) setHomework(r.homework); }),
       apiGetMaterials().then(r => { if (r.materials) setMaterials(r.materials); }),
       apiGetLeaderboard().then(r => { if (r.leaderboard) setBoard(r.leaderboard); }),
+      loadChat(),
     ]).finally(() => setLoading(false));
+
+    const t = setInterval(loadChat, 20000);
+    return () => clearInterval(t);
   }, []);
+
+  const chats = contacts
+    .filter(c => c.last_at || c.last_text)
+    .sort((a, b) => {
+      if ((b.unread || 0) !== (a.unread || 0)) return (b.unread || 0) - (a.unread || 0);
+      return (b.last_at || "").localeCompare(a.last_at || "");
+    })
+    .slice(0, 5);
+  const totalUnread = contacts.reduce((s, c) => s + (c.unread || 0), 0);
 
   const todayKey = toKey(new Date());
   const nowTime = new Date().toTimeString().slice(0, 5);
@@ -351,6 +381,73 @@ export default function Dashboard({ onNavigate, user }: DashboardProps) {
               );
             })}
           </div>
+        </div>
+      </div>
+
+      {/* Chat */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <h3 className="font-montserrat font-bold text-sm text-foreground">Сообщения</h3>
+            {totalUnread > 0 && (
+              <span className="text-[10px] font-montserrat font-bold text-white red-accent px-1.5 py-0.5 rounded-full">
+                {totalUnread}
+              </span>
+            )}
+          </div>
+          <button onClick={() => (onOpenChat ? onOpenChat() : onNavigate("chat"))}
+            className="text-primary text-xs font-medium hover:underline">
+            Открыть чат →
+          </button>
+        </div>
+        <div className="divide-y divide-border">
+          {loading && [...Array(2)].map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-5 py-3 animate-pulse">
+              <div className="w-9 h-9 bg-muted rounded-full" />
+              <div className="flex-1 space-y-2"><div className="h-3.5 bg-muted rounded w-1/3" /><div className="h-3 bg-muted rounded w-2/3" /></div>
+            </div>
+          ))}
+          {!loading && !chats.length && (
+            <div className="px-5 py-10 text-center">
+              <Icon name="MessageSquare" size={30} className="text-muted-foreground/40 mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground font-ibm">Переписки пока нет</p>
+              <button onClick={() => (onOpenChat ? onOpenChat() : onNavigate("chat"))}
+                className="mt-3 px-4 py-2 red-accent text-white rounded-lg text-xs font-montserrat font-bold hover:opacity-90">
+                Написать {isTeacher ? "ученику" : "преподавателю"}
+              </button>
+            </div>
+          )}
+          {!loading && chats.map(c => (
+            <button key={c.id} onClick={() => (onOpenChat ? onOpenChat(c.id) : onNavigate("chat"))}
+              className="w-full flex items-center gap-3 px-5 py-3 hover:bg-muted/30 transition-colors text-left">
+              <span className="relative flex-shrink-0">
+                <span className="w-9 h-9 rounded-full red-accent flex items-center justify-center">
+                  <span className="text-white font-bold text-[11px] font-montserrat">{c.avatar}</span>
+                </span>
+                {c.online && (
+                  <span className="absolute -right-0.5 -bottom-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-card" />
+                )}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="flex items-center gap-2">
+                  <span className={`text-sm font-ibm truncate ${c.unread ? "font-bold text-foreground" : "font-medium text-foreground"}`}>
+                    {c.name}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground font-ibm flex-shrink-0 ml-auto">
+                    {chatTime(c.last_at)}
+                  </span>
+                </span>
+                <span className={`block text-xs truncate font-ibm ${c.unread ? "text-foreground" : "text-muted-foreground"}`}>
+                  {c.last_text || "Нет сообщений"}
+                </span>
+              </span>
+              {!!c.unread && (
+                <span className="flex-shrink-0 min-w-[20px] h-5 px-1.5 rounded-full red-accent flex items-center justify-center">
+                  <span className="text-[10px] font-montserrat font-bold text-white">{c.unread}</span>
+                </span>
+              )}
+            </button>
+          ))}
         </div>
       </div>
     </div>

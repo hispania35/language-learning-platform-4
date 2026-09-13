@@ -26,6 +26,7 @@ export default function App() {
   const [checking, setChecking] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [lessonRoom, setLessonRoom] = useState<string | null>(null);
+  const [chatPreselect, setChatPreselect] = useState<number[] | null>(null);
 
   // Восстановить сессию: сразу из кеша, затем сверить с сервером
   useEffect(() => {
@@ -86,15 +87,21 @@ export default function App() {
 
   const renderPage = () => {
     switch (activePage) {
-      case "dashboard": return <Dashboard onNavigate={setActivePage} user={user} />;
+      case "dashboard": return (
+        <Dashboard user={user} onNavigate={setActivePage}
+          onOpenChat={(peerId) => { setChatPreselect(peerId ? [peerId] : null); setActivePage("chat"); }} />
+      );
       case "calendar": return <CalendarPage user={user} onJoinLesson={(room) => { setLessonRoom(room); setActivePage("lesson"); }} />;
       case "lesson": return <LessonRoomPage user={user} initialRoom={lessonRoom} onLeave={() => setLessonRoom(null)} />;
       case "materials": return <MaterialsPage user={user} />;
       case "homework": return <HomeworkPage user={user} />;
       case "students": return <StudentsPage user={user} />;
-      case "chat": return <ChatPage user={user} />;
+      case "chat": return <ChatPage user={user} preselect={chatPreselect} />;
       case "profile": return <ProfilePage user={user} />;
-      default: return <Dashboard onNavigate={setActivePage} user={user} />;
+      default: return (
+        <Dashboard user={user} onNavigate={setActivePage}
+          onOpenChat={(peerId) => { setChatPreselect(peerId ? [peerId] : null); setActivePage("chat"); }} />
+      );
     }
   };
 
