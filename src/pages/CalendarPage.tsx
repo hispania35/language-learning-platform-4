@@ -60,6 +60,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const [moveForm, setMoveForm] = useState({ lesson_date: "", lesson_time: "" });
   const [moveError, setMoveError] = useState("");
   const [moveSaving, setMoveSaving] = useState(false);
+  const [extraSlots, setExtraSlots] = useState<string[]>([]);
 
   useEffect(() => {
     apiGetCalendar()
@@ -90,7 +91,19 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const weekLessonTimes = visibleLessons
     .filter(l => l.lesson_date >= weekFrom && l.lesson_date <= weekTo)
     .map(l => l.lesson_time.slice(0, 5));
-  const TIME_SLOTS = Array.from(new Set([...DEFAULT_SLOTS, ...weekLessonTimes])).sort();
+  const TIME_SLOTS = Array.from(new Set([...DEFAULT_SLOTS, ...weekLessonTimes, ...extraSlots])).sort();
+
+  // Ближайшее свободное время в дне: берём час после последнего занятия/слота
+  const suggestTime = (dateKey: string) => {
+    const busy = visibleLessons
+      .filter(l => l.lesson_date === dateKey)
+      .map(l => l.lesson_time.slice(0, 5));
+    const all = [...TIME_SLOTS, ...busy];
+    let hour = all.length ? Math.max(...all.map(t => Number(t.slice(0, 2)))) + 1 : 10;
+    if (dateKey === todayKey) hour = Math.max(hour, today.getHours() + 1);
+    if (hour > 23) hour = 23;
+    return `${String(hour).padStart(2, "0")}:00`;
+  };
 
   const shiftWeek = (delta: number) => {
     const d = new Date(weekStart);
@@ -437,6 +450,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                 {weekDays.map((d, di) => {
                   const dateKey = toKey(d);
                   const isPast = dateKey < todayKey;
+                  const hasFree = TIME_SLOTS.some(t => !findLesson(dateKey, t) && !isPastSlot(dateKey, t));
                   return (
                     <div key={di} className="border-r border-border last:border-r-0 p-1.5 space-y-1.5">
                       {TIME_SLOTS.map((time, ti) => {
@@ -510,6 +524,20 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                           </div>
                         );
                       })}
+
+                      {isTeacher && !isPast && !hasFree && (
+                        <button
+                          title="Свободных слотов нет — назначить на более позднее время"
+                          onClick={() => {
+                            const t = suggestTime(dateKey);
+                            setExtraSlots(prev => prev.includes(t) ? prev : [...prev, t]);
+                            handleSlotClick(dateKey, t);
+                          }}
+                          className="w-full h-12 rounded-md border-2 border-dashed border-green-400 text-green-600 text-[11px] font-montserrat font-bold flex flex-col items-center justify-center gap-0.5 hover:bg-green-50 transition-colors">
+                          <Icon name="Plus" size={14} />
+                          позже
+                        </button>
+                      )}
                     </div>
                   );
                 })}
