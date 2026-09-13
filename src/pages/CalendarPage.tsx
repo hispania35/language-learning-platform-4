@@ -21,22 +21,14 @@ const lessonTypes = ["Грамматика", "Практика", "Повторе
 const toKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-const getMonday = (d: Date) => {
-  const date = new Date(d);
-  const dow = date.getDay() === 0 ? 7 : date.getDay();
-  date.setDate(date.getDate() - (dow - 1));
-  date.setHours(12, 0, 0, 0);
-  return date;
-};
-
 export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoinLesson?: (room: string) => void }) {
   const today = new Date();
   const todayKey = toKey(today);
   const nowTime = `${String(today.getHours()).padStart(2, "0")}:${String(today.getMinutes()).padStart(2, "0")}`;
-  const currentMonday = getMonday(today);
+  const weekAnchor = (() => { const d = new Date(today); d.setHours(12, 0, 0, 0); return d; })();
   const isTeacher = user.role === "teacher";
 
-  const [weekStart, setWeekStart] = useState<Date>(currentMonday);
+  const [weekStart, setWeekStart] = useState<Date>(weekAnchor);
   const [selected, setSelected] = useState<{ date: string; time: string } | null>(null);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,7 +74,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   });
 
   const weekEnd = weekDays[6];
-  const isCurrentWeek = toKey(weekStart) === toKey(currentMonday);
+  const isCurrentWeek = toKey(weekStart) === toKey(weekAnchor);
 
   const visibleLessons = filterStudent
     ? lessons.filter(l => (l.students || []).some(s => s.id === filterStudent))
@@ -275,7 +267,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
               {isCurrentWeek ? (
                 <span className="text-xs px-2 py-0.5 rounded bg-sky-400 text-white font-montserrat font-medium">Текущая неделя</span>
               ) : (
-                <button onClick={() => { setWeekStart(currentMonday); setSelected(null); }}
+                <button onClick={() => { setWeekStart(weekAnchor); setSelected(null); }}
                   className="text-xs px-2 py-0.5 rounded border border-sky-400 text-sky-500 font-montserrat font-medium hover:bg-sky-50 transition-colors">
                   к текущей
                 </button>
@@ -329,11 +321,11 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
               <div className="grid grid-cols-7 border-b border-border bg-muted/40">
                 {weekDays.map((d, i) => {
                   const isToday = toKey(d) === todayKey;
-                  const isWeekend = i >= 5;
+                  const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                   return (
                     <div key={i} className={`py-2 text-center border-r border-border last:border-r-0 ${isToday ? "bg-accent/20" : ""}`}>
-                      <span className={`text-xs font-montserrat font-bold ${isWeekend ? "text-red-400" : "text-foreground"}`}>
-                        {DAYS[i]} {d.getDate()}
+                      <span className={`text-xs font-montserrat font-bold ${isToday ? "text-primary" : isWeekend ? "text-red-400" : "text-foreground"}`}>
+                        {isToday ? "сегодня" : DAYS[(d.getDay() + 6) % 7]} {d.getDate()}
                       </span>
                     </div>
                   );
