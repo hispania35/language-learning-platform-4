@@ -22,6 +22,29 @@ function fmtSec(s: number) {
   return `${m}:${String(s % 60).padStart(2, "0")}`;
 }
 
+const LINK_RE = /((?:https?:\/\/|www\.)[^\s<>"']+[^\s<>"'.,!?)]|[\w.+-]+@[\w-]+\.[\w.]+)/gi;
+
+function Linkify({ text, mine }: { text: string; mine: boolean }) {
+  const parts = text.split(LINK_RE);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (!part) return null;
+        if (i % 2 === 0) return <span key={i}>{part}</span>;
+        const isMail = part.includes("@") && !part.startsWith("http");
+        const href = isMail ? `mailto:${part}` : part.startsWith("http") ? part : `https://${part}`;
+        return (
+          <a key={i} href={href} target="_blank" rel="noreferrer"
+            onClick={e => e.stopPropagation()}
+            className={`underline underline-offset-2 break-all hover:opacity-80 ${mine ? "text-white font-medium" : "text-primary"}`}>
+            {part}
+          </a>
+        );
+      })}
+    </>
+  );
+}
+
 function Attachment({ m }: { m: ChatMessage }) {
   if (!m.file_url) return null;
   if (m.file_type === "audio") {
@@ -75,6 +98,12 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
   const timerRef = useRef<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+  const lastIdRef = useRef<number | null>(null);
+  const targetKeyRef = useRef("");
+  const [showJump, setShowJump] = useState(false);
+  const [newCount, setNewCount] = useState(0);
 
   const loadContacts = useCallback(() => {
     apiGetChatContacts().then(res => {
@@ -115,9 +144,62 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
     return () => clearInterval(t);
   }, [target, loadMessages]);
 
+  const scrollToBottom = useCallback((smooth = true) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+    atBottomRef.current = true;
+    setShowJump(false);
+    setNewCount(0);
+  }, []);
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const bottom = gap < 80;
+    atBottomRef.current = bottom;
+    if (bottom) { setShowJump(false); setNewCount(0); }
+    else setShowJump(true);
+  };
+
+  // Новый собеседник — открываем внизу. Дальше вниз тянем только если пользователь и так внизу.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, peerTyping]);
+    if (!target) return;
+    const key = `${target.kind}_${target.id}`;
+    const switched = targetKeyRef.current !== key;
+    if (switched) {
+      targetKeyRef.current = key;
+      atBottomRef.current = true;
+      setShowJump(false);
+      setNewCount(0);
+      lastIdRef.current = messages.length ? messages[messages.length - 1].id : null;
+      requestAnimationFrame(() => scrollToBottom(false));
+      return;
+    }
+
+    const last = messages.length ? messages[messages.length - 1] : null;
+    const hasNew = last && last.id !== lastIdRef.current;
+    if (!hasNew) return;
+
+    const mineNew = last!.from_user_id === Number(user.id);
+    const prevId = lastIdRef.current;
+    lastIdRef.current = last!.id;
+
+    if (atBottomRef.current || mineNew) {
+      requestAnimationFrame(() => scrollToBottom(true));
+    } else {
+      const fresh = prevId === null
+        ? 1
+        : messages.filter(m => m.id > prevId && m.from_user_id !== Number(user.id)).length;
+      setNewCount(c => c + fresh);
+      setShowJump(true);
+    }
+  }, [messages, target, user.id, scrollToBottom]);
+
+  useEffect(() => {
+    if (peerTyping && atBottomRef.current) scrollToBottom(true);
+  }, [peerTyping, scrollToBottom]);
 
   const toBase64 = (file: Blob): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -412,7 +494,9 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
                 )}
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-muted/20">
+              <div className="relative flex-1 min-h-0">
+              <div ref={scrollRef} onScroll={onScroll}
+                className="h-full overflow-y-auto p-4 space-y-3 bg-muted/20">
                 {!shown.length && (
                   <p className="text-center text-sm text-muted-foreground font-ibm py-8">
                     {msgSearch ? "Ничего не найдено" : target.kind === "group" ? "Напишите первое сообщение группе" : "Сообщений пока нет"}
@@ -473,7 +557,11 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
                           </div>
                         ) : (
                           <>
-                            {m.text && <p className="text-sm font-ibm whitespace-pre-wrap break-words">{m.text}</p>}
+                            {m.text && (
+                              <p className="text-sm font-ibm whitespace-pre-wrap break-words">
+                                <Linkify text={m.text} mine={mine} />
+                              </p>
+                            )}
                             <Attachment m={m} />
                             <p className={`text-[10px] mt-1 flex items-center gap-1 ${mine ? "text-white/70 justify-end" : "text-muted-foreground"}`}>
                               <span>{timeOf(m.created_at)}{m.edited_at ? " · изменено" : ""}</span>
@@ -501,6 +589,15 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
                   </div>
                 )}
                 <div ref={bottomRef} />
+              </div>
+
+              {showJump && (
+                <button onClick={() => scrollToBottom(true)}
+                  className="absolute bottom-4 right-4 flex items-center gap-1.5 pl-3 pr-3.5 py-2 rounded-full shadow-lg red-accent text-white text-xs font-montserrat font-bold hover:opacity-90 transition-opacity">
+                  <Icon name="ArrowDown" size={14} />
+                  {newCount > 0 ? `${newCount} новых` : "Вниз"}
+                </button>
+              )}
               </div>
 
               {/* Ввод */}
