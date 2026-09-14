@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import {
-  apiUploadLibraryItem, apiUploadLibraryLarge,
+  apiUploadLibraryItem, apiUploadLibraryLarge, apiAddLibrarySubject,
   type LibrarySubject,
 } from "@/lib/api";
 
@@ -16,6 +16,16 @@ const fmtSize = (b?: number) => {
 
 const iconFor = (mime: string) =>
   mime.startsWith("audio/") ? "Music" : mime.startsWith("video/") ? "Video" : "FileText";
+
+const kindWord = (mime: string) =>
+  mime.startsWith("audio/") ? "аудио" : mime.startsWith("video/") ? "видео" : "учебник";
+
+const plural = (n: number, one: string, few: string, many: string) => {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+  return many;
+};
 
 type Row = {
   file: File;
@@ -42,42 +52,85 @@ export default function LibraryUploadDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const [allSubjects, setAllSubjects] = useState<LibrarySubject[]>(subjects);
   const [rows, setRows] = useState<Row[]>([]);
   const [author, setAuthor] = useState("");
   const [description, setDescription] = useState("");
   const [subjectId, setSubjectId] = useState<number | null>(subjects[0]?.id ?? null);
+  const [newSubject, setNewSubject] = useState("");
+  const [addingSubject, setAddingSubject] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [folderName, setFolderName] = useState("");
+  const [retried, setRetried] = useState(false);
+  const [summary, setSummary] = useState<null | { ok: number; failed: Row[]; final: boolean }>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const dirRef = useRef<HTMLInputElement>(null);
 
-  const addFiles = (list: FileList) => {
-    const picked = Array.from(list);
-    const tooBig = picked.filter(f => f.size > maxMb * 1024 * 1024);
-    if (tooBig.length) setErr(`Больше ${maxMb} МБ: ${tooBig.map(f => f.name).join(", ")}`);
-    else setErr("");
-    const ok = picked.filter(f => f.size <= maxMb * 1024 * 1024);
-    setRows(prev => [
-      ...prev,
-      ...ok.map(f => ({
-        file: f,
-        title: f.name.replace(/\.[^.]+$/, ""),
-        progress: 0,
-        state: "wait" as const,
-      })),
-    ]);
+  const subjectName = allSubjects.find(s => s.id === subjectId)?.name;
+
+  const addFiles = (list: FileList, fromFolder = false) => {
+    const picked = Array.from(list).filter(f => f.size > 0 && !f.name.startsWith("."));
+    if (fromFolder) {
+      const rel = (picked[0] as File & { webkitRelativePath?: string })?.webkitRelativePath || "";
+      const dir = rel.split("/")[0];
+      if (dir) setFolderName(dir);
+    }
+    const limit = maxMb * 1024 * 1024;
+    const tooBig = picked.filter(f => f.size > limit);
+    const ok = picked.filter(f => f.size <= limit);
+    setErr(tooBig.length
+      ? `Пропущено — больше ${maxMb} МБ: ${tooBig.map(f => f.name).join(", ")}`
+      : "");
+    setSummary(null);
+    setRetried(false);
+    setRows(prev => {
+      const have = new Set(prev.map(r => r.file.name + r.file.size));
+      const fresh = ok.filter(f => !have.has(f.name + f.size));
+      return [
+        ...prev,
+        ...fresh.map(f => ({
+          file: f,
+          title: f.name.replace(/\.[^.]+$/, ""),
+          progress: 0,
+          state: "wait" as const,
+        })),
+      ];
+    });
   };
 
   const patch = (i: number, data: Partial<Row>) =>
     setRows(prev => prev.map((r, idx) => (idx === i ? { ...r, ...data } : r)));
 
-  const uploadAll = async () => {
-    if (!rows.length) { setErr("Выберите файлы"); return; }
-    setBusy(true); setErr("");
-    let okCount = 0;
+  const createSubject = async () => {
+    const name = newSubject.trim();
+    if (!name || addingSubject) return;
+    setAddingSubject(true);
+    try {
+      const res = await apiAddLibrarySubject(name);
+      if (res.ok && res.id) {
+        const s = { id: res.id, name: res.name || name, color: res.color } as LibrarySubject;
+        setAllSubjects(prev => [...prev, s]);
+        setSubjectId(res.id);
+        setNewSubject("");
+        onDone();
+      } else setErr(res.error || "Не удалось создать каталог");
+    } catch {
+      setErr("Нет связи с сервером");
+    } finally {
+      setAddingSubject(false);
+    }
+  };
 
-    for (let i = 0; i < rows.length; i++) {
+  const runUpload = async (indexes: number[], isRetry: boolean) => {
+    setBusy(true);
+    setErr("");
+    setSummary(null);
+    let okCount = rows.filter(r => r.state === "done").length;
+    const failedRows: Row[] = [];
+
+    for (const i of indexes) {
       const row = rows[i];
-      if (row.state === "done") continue;
       patch(i, { state: "run", progress: 0, error: "" });
       const meta = {
         title: row.title.trim() || row.file.name,
@@ -96,15 +149,45 @@ export default function LibraryUploadDialog({
               mime: row.file.type || "application/octet-stream",
             });
         if (res.ok) { patch(i, { state: "done", progress: 100 }); okCount++; }
-        else patch(i, { state: "fail", error: res.error || "Не удалось загрузить" });
+        else {
+          const error = res.error || "Сервер отклонил файл";
+          patch(i, { state: "fail", error });
+          failedRows.push({ ...row, error });
+        }
       } catch {
-        patch(i, { state: "fail", error: "Загрузка прервалась" });
+        const error = "Загрузка прервалась";
+        patch(i, { state: "fail", error });
+        failedRows.push({ ...row, error });
       }
     }
 
     setBusy(false);
+    if (isRetry) setRetried(true);
+    setSummary({
+      ok: okCount,
+      failed: failedRows,
+      final: isRetry || !failedRows.length,
+    });
+
     if (okCount) onDone();
   };
+
+  const uploadAll = () => {
+    if (!rows.length) { setErr("Сначала выберите файлы или папку"); return; }
+    const todo = rows.map((r, i) => (r.state === "done" ? -1 : i)).filter(i => i >= 0);
+    runUpload(todo, false);
+  };
+
+  const retryFailed = () => {
+    const idx = rows.map((r, i) => (r.state === "fail" ? i : -1)).filter(i => i >= 0);
+    if (idx.length) runUpload(idx, true);
+  };
+
+  const counts = rows.reduce((acc, r) => {
+    const k = kindWord(r.file.type);
+    acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
 
   const allDone = rows.length > 0 && rows.every(r => r.state === "done");
   const field = "mt-1 w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40";
@@ -115,34 +198,91 @@ export default function LibraryUploadDialog({
       <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-lg p-5 animate-scale-in max-h-[90vh] overflow-y-auto">
         <h2 className="font-montserrat font-bold text-base text-foreground mb-4">Загрузить в библиотеку</h2>
 
+        {/* Каталог */}
+        <div className="rounded-lg border border-border p-3 mb-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Icon name="FolderOpen" size={15} className="text-primary" />
+            <span className="text-xs font-montserrat font-bold text-foreground">Каталог</span>
+            {subjectName && (
+              <span className="text-[11px] text-muted-foreground font-ibm truncate">· {subjectName}</span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {allSubjects.map(s => (
+              <button key={s.id} onClick={() => setSubjectId(subjectId === s.id ? null : s.id)}
+                disabled={busy}
+                className={`px-3 py-1.5 rounded-lg text-xs font-montserrat font-bold border transition-colors disabled:opacity-60
+                  ${subjectId === s.id ? "text-white border-transparent" : "text-foreground border-border hover:bg-muted"}`}
+                style={subjectId === s.id ? { background: s.color || "#c0392b" } : undefined}>
+                {s.name}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-1.5 mt-2">
+            <input value={newSubject} onChange={e => setNewSubject(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") createSubject(); }}
+              disabled={busy} placeholder="Новый каталог, например «Español A1»"
+              className="flex-1 px-3 py-1.5 rounded-lg border border-dashed border-border bg-muted/30 text-xs font-ibm outline-none focus:border-primary/40" />
+            <button onClick={createSubject} disabled={busy || addingSubject || !newSubject.trim()}
+              className="px-3 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors disabled:opacity-50">
+              {addingSubject ? "..." : "Создать"}
+            </button>
+          </div>
+
+          <p className="text-[11px] text-muted-foreground font-ibm mt-2">
+            В один каталог можно складывать учебники, аудио и видео вместе
+          </p>
+        </div>
+
         <input ref={fileRef} type="file" multiple className="hidden"
           accept=".pdf,.epub,.fb2,.doc,.docx,.txt,.zip,audio/*,video/*"
           onChange={e => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ""; }} />
+        <input ref={dirRef} type="file" multiple className="hidden"
+          {...{ webkitdirectory: "", directory: "" } as Record<string, string>}
+          onChange={e => { if (e.target.files?.length) addFiles(e.target.files, true); e.target.value = ""; }} />
 
-        <button onClick={() => fileRef.current?.click()} disabled={busy}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-lg border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/40 transition-colors text-left disabled:opacity-60">
-          <Icon name="Upload" size={20} className="text-primary flex-shrink-0" />
-          <span className="min-w-0">
-            <span className="block text-sm font-montserrat font-bold text-foreground">
-              {rows.length ? "Добавить ещё файлы" : "Выбрать файлы"}
+        <div className="grid grid-cols-2 gap-2">
+          <button onClick={() => fileRef.current?.click()} disabled={busy}
+            className="flex items-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/40 transition-colors text-left disabled:opacity-60">
+            <Icon name="Upload" size={18} className="text-primary flex-shrink-0" />
+            <span className="min-w-0">
+              <span className="block text-sm font-montserrat font-bold text-foreground">Файлы</span>
+              <span className="block text-[11px] text-muted-foreground font-ibm">можно несколько</span>
             </span>
-            <span className="block text-xs text-muted-foreground font-ibm">
-              Можно сразу несколько · книги, аудио и видео до {maxMb >= 1024 ? `${Math.round(maxMb / 1024)} ГБ` : `${maxMb} МБ`}
+          </button>
+          <button onClick={() => dirRef.current?.click()} disabled={busy}
+            className="flex items-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-border hover:border-primary/40 hover:bg-muted/40 transition-colors text-left disabled:opacity-60">
+            <Icon name="FolderUp" size={18} className="text-primary flex-shrink-0" />
+            <span className="min-w-0">
+              <span className="block text-sm font-montserrat font-bold text-foreground">Папку целиком</span>
+              <span className="block text-[11px] text-muted-foreground font-ibm truncate">
+                {folderName || "со всем содержимым"}
+              </span>
             </span>
-          </span>
-        </button>
+          </button>
+        </div>
 
         {!!rows.length && (
-          <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
+          <p className="text-[11px] text-muted-foreground font-ibm mt-2">
+            Готово к загрузке: {rows.length} {plural(rows.length, "файл", "файла", "файлов")}
+            {Object.keys(counts).length > 1 && ` · ${Object.entries(counts).map(([k, v]) => `${k} ${v}`).join(", ")}`}
+          </p>
+        )}
+
+        {!!rows.length && (
+          <div className="mt-2 space-y-2 max-h-56 overflow-y-auto">
             {rows.map((r, i) => (
-              <div key={i} className="rounded-lg border border-border p-2.5">
+              <div key={i} className={`rounded-lg border p-2.5 transition-colors
+                ${r.state === "fail" ? "border-red-200 bg-red-50/50" : r.state === "done" ? "border-green-200 bg-green-50/40" : "border-border"}`}>
                 <div className="flex items-center gap-2">
                   <Icon name={iconFor(r.file.type)} size={16} className="text-primary flex-shrink-0" />
                   <input value={r.title} disabled={busy}
                     onChange={e => patch(i, { title: e.target.value })}
                     className="flex-1 min-w-0 bg-transparent text-sm font-ibm outline-none border-b border-transparent focus:border-primary/40" />
                   {r.state === "done"
-                    ? <Icon name="Check" size={15} className="text-green-600 flex-shrink-0" />
+                    ? <Icon name="CircleCheck" size={15} className="text-green-600 flex-shrink-0" />
                     : r.state === "fail"
                       ? <Icon name="TriangleAlert" size={15} className="text-red-600 flex-shrink-0" />
                       : !busy && (
@@ -168,43 +308,82 @@ export default function LibraryUploadDialog({
 
         <div className="mt-3 space-y-3">
           <div>
-            <label className="text-xs font-montserrat font-bold text-muted-foreground">Предмет</label>
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {subjects.map(s => (
-                <button key={s.id} onClick={() => setSubjectId(subjectId === s.id ? null : s.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-montserrat font-bold border transition-colors
-                    ${subjectId === s.id ? "text-white border-transparent" : "text-foreground border-border hover:bg-muted"}`}
-                  style={subjectId === s.id ? { background: s.color || "#c0392b" } : undefined}>
-                  {s.name}
-                </button>
-              ))}
-              {!subjects.length && (
-                <span className="text-xs text-muted-foreground font-ibm">Предметы пока не созданы</span>
-              )}
-            </div>
-          </div>
-          <div>
             <label className="text-xs font-montserrat font-bold text-muted-foreground">Автор (для всех файлов)</label>
-            <input value={author} onChange={e => setAuthor(e.target.value)}
+            <input value={author} onChange={e => setAuthor(e.target.value)} disabled={busy}
               placeholder="Francisca Castro" className={field} />
           </div>
           <div>
             <label className="text-xs font-montserrat font-bold text-muted-foreground">Описание (для всех файлов)</label>
-            <textarea rows={2} value={description} onChange={e => setDescription(e.target.value)}
+            <textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} disabled={busy}
               placeholder="Учебник для начинающих" className={field + " resize-none"} />
           </div>
         </div>
 
         {err && <p className="text-xs text-red-600 font-ibm mt-2">{err}</p>}
 
+        {/* Итог загрузки */}
+        {summary && (
+          <div className={`mt-3 rounded-lg border p-3
+            ${summary.failed.length ? "border-amber-200 bg-amber-50" : "border-green-200 bg-green-50"}`}>
+            <div className="flex items-start gap-2">
+              <Icon name={summary.failed.length ? "TriangleAlert" : "CircleCheck"} size={16}
+                className={`flex-shrink-0 mt-0.5 ${summary.failed.length ? "text-amber-600" : "text-green-600"}`} />
+              <div className="min-w-0">
+                {!summary.failed.length ? (
+                  <p className="text-sm font-montserrat font-bold text-green-800">
+                    Загрузка завершена успешно
+                  </p>
+                ) : !summary.final ? (
+                  <p className="text-sm font-montserrat font-bold text-amber-800">
+                    Часть файлов не загрузилась
+                  </p>
+                ) : (
+                  <p className="text-sm font-montserrat font-bold text-amber-800">
+                    Загрузка завершена с ошибками
+                  </p>
+                )}
+
+                <p className={`text-xs font-ibm mt-0.5 ${summary.failed.length ? "text-amber-700" : "text-green-700"}`}>
+                  {summary.ok > 0 && <>Загружено {summary.ok} {plural(summary.ok, "файл", "файла", "файлов")}{subjectName ? ` в каталог «${subjectName}»` : ""}. </>}
+                  {!!summary.failed.length && (
+                    summary.final
+                      ? `Не удалось загрузить ${summary.failed.length} ${plural(summary.failed.length, "файл", "файла", "файлов")} — попробуйте позже или проверьте формат и размер.`
+                      : `${summary.failed.length} ${plural(summary.failed.length, "файл", "файла", "файлов")} не загрузилось. Можно повторить попытку.`
+                  )}
+                </p>
+
+                {!!summary.failed.length && (
+                  <ul className="mt-1.5 space-y-0.5">
+                    {summary.failed.map((f, i) => (
+                      <li key={i} className="text-[11px] text-amber-800 font-ibm truncate">
+                        • {f.title || f.file.name} — {f.error}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {!!summary.failed.length && !summary.final && !retried && (
+                  <button onClick={retryFailed} disabled={busy}
+                    className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg red-accent text-white text-xs font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60">
+                    <Icon name="RotateCcw" size={13} />
+                    Повторить загрузку ({summary.failed.length})
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-2 mt-4">
           <button onClick={onClose} disabled={busy}
             className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60">
-            {allDone ? "Закрыть" : "Отмена"}
+            {allDone || (summary?.final) ? "Закрыть" : "Отмена"}
           </button>
           <button onClick={uploadAll} disabled={busy || allDone}
-            className="flex-1 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60">
-            {busy ? "Загружаю..." : rows.length > 1 ? `Загрузить ${rows.length}` : "Загрузить"}
+            className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60">
+            {busy
+              ? <><Icon name="Loader" size={14} className="animate-spin" />Загружаю...</>
+              : rows.length > 1 ? `Загрузить ${rows.length}` : "Загрузить"}
           </button>
         </div>
       </div>
