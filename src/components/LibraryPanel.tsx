@@ -404,7 +404,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
             className="flex-1 bg-transparent text-sm font-ibm outline-none" />
         </div>
 
-        <div className="flex gap-1 bg-muted/40 rounded-xl p-1">
+        <div className="flex gap-1 bg-muted/40 rounded-xl p-1 overflow-x-auto">
           {([["all", "Все"], ["book", "Книги"], ["audio", "Аудио"], ["video", "Видео"]] as const).map(([v, label]) => (
             <button key={v} onClick={() => setTab(v)}
               className={`px-3 py-1.5 rounded-lg text-sm font-montserrat font-medium transition-all
@@ -417,13 +417,13 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
         {isTeacher && (
           <div className="flex gap-2">
             <button onClick={() => setShowAdd(true)}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 red-accent text-white rounded-xl text-sm font-montserrat font-bold hover:opacity-90 transition-opacity">
+              className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 red-accent text-white rounded-xl text-sm font-montserrat font-bold hover:opacity-90 transition-opacity">
               <Icon name="Upload" size={16} />
               Загрузить
             </button>
             {!!items.length && (
               <button onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
-                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-montserrat font-bold transition-colors
+                className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-montserrat font-bold transition-colors
                   ${selectMode ? "border-primary text-primary bg-primary/5" : "border-border text-foreground hover:bg-muted"}`}>
                 <Icon name={selectMode ? "X" : "ListChecks"} size={16} />
                 {selectMode ? "Отменить" : "Выбрать"}

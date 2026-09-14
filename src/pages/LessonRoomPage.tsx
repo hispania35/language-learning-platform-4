@@ -91,32 +91,33 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
   if (room) {
     const url = buildRoomUrl(room, user.name);
     return (
-      <div className="max-w-6xl mx-auto space-y-3" ref={frameRef}>
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
+      <div className="max-w-6xl mx-auto flex flex-col gap-2 h-full min-h-[420px]" ref={frameRef}>
+        <div className="flex-shrink-0 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
             <h2 className="font-montserrat font-bold text-foreground">Урок идёт</h2>
-            <span className="text-xs text-muted-foreground font-ibm">комната {room}</span>
+            <span className="hidden sm:inline text-xs text-muted-foreground font-ibm truncate">комната {room}</span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-1.5 sm:gap-2">
             <button
+              title="Скопировать ссылку"
               onClick={() => {
                 navigator.clipboard?.writeText(`https://${JITSI_HOST}/${room}`);
               }}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
               <Icon name="Link" size={15} />
-              Скопировать ссылку
+              <span className="hidden lg:inline">Скопировать ссылку</span>
             </button>
-            <a href={url} target="_blank" rel="noreferrer"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+            <a href={url} target="_blank" rel="noreferrer" title="Открыть в новом окне"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
               <Icon name="ExternalLink" size={15} />
-              В новом окне
+              <span className="hidden lg:inline">В новом окне</span>
             </a>
             <button onClick={() => setChatOpen(v => !v)} title="Чат урока"
-              className={`relative flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm font-montserrat font-medium transition-colors
+              className={`relative flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg border text-sm font-montserrat font-medium transition-colors
                 ${chatOpen ? "red-accent text-white border-transparent" : "border-border text-foreground hover:bg-muted"}`}>
               <Icon name="MessageSquare" size={15} />
-              Чат
+              <span className="hidden sm:inline">Чат</span>
               {!chatOpen && unread > 0 && (
                 <>
                   <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />
@@ -126,34 +127,34 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
                 </>
               )}
             </button>
-            <button onClick={() => { setRoom(null); onLeave?.(); }}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-medium hover:bg-red-700 transition-colors">
+            <button onClick={() => { setRoom(null); onLeave?.(); }} title="Завершить урок"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-medium hover:bg-red-700 transition-colors">
               <Icon name="PhoneOff" size={15} />
-              Завершить
+              <span className="hidden sm:inline">Завершить</span>
             </button>
           </div>
         </div>
 
         {notice && (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 animate-scale-in">
+          <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20 animate-scale-in">
             <Icon name="BellRing" size={15} className="text-primary flex-shrink-0" />
             <p className="text-xs text-foreground font-ibm">{notice}</p>
           </div>
         )}
 
-        <div className="flex flex-col lg:flex-row gap-3">
-          <div className="flex-1 min-w-0 bg-card rounded-xl border border-border overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-2">
+          <div className="flex-1 min-h-[280px] min-w-0 bg-card rounded-xl border border-border overflow-hidden">
             <iframe
               src={url}
               title="Видеоурок"
               allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
-              className="w-full h-[calc(100vh-190px)] min-h-[420px] border-0"
+              className="w-full h-full min-h-[280px] border-0"
             />
           </div>
 
           {chatOpen && (
-            <div className="lg:w-80 lg:flex-shrink-0 bg-card rounded-xl border border-border overflow-hidden h-[calc(100vh-190px)] min-h-[420px] flex flex-col animate-fade-in">
-              <div className="px-3 py-2 border-b border-border flex items-center gap-2">
+            <div className="lg:w-80 lg:flex-shrink-0 h-64 lg:h-auto bg-card rounded-xl border border-border overflow-hidden flex flex-col animate-fade-in">
+              <div className="px-3 py-2 border-b border-border flex items-center gap-2 flex-shrink-0">
                 <Icon name="MessageSquare" size={14} className="text-primary" />
                 <p className="text-sm font-montserrat font-bold text-foreground flex-1">Чат урока</p>
                 <button onClick={() => setChatOpen(false)} className="text-muted-foreground hover:text-foreground">
@@ -167,7 +168,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
           )}
         </div>
 
-        <p className="text-xs text-muted-foreground font-ibm text-center">
+        <p className="flex-shrink-0 text-[11px] sm:text-xs text-muted-foreground font-ibm text-center">
           Если видео не открылось, нажмите «В новом окне» и разрешите доступ к камере и микрофону.
         </p>
       </div>

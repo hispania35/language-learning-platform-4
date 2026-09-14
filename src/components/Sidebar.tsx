@@ -91,7 +91,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onClose, user,
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1">
           {navItems.map((item) => {
             const isActive = activePage === item.id;
             return (
@@ -124,7 +124,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onClose, user,
         </nav>
 
         {/* Bottom */}
-        <div className="px-3 pb-4 border-t border-sidebar-border pt-3 space-y-1">
+        <div className="flex-shrink-0 px-3 pb-4 border-t border-sidebar-border pt-3 space-y-1">
           <button onClick={() => setSoundOn(!soundOn)}
             title={inLesson ? "Во время урока звук приглушён" : soundOn ? "Выключить звук уведомлений" : "Включить звук уведомлений"}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/60 transition-all duration-150">
