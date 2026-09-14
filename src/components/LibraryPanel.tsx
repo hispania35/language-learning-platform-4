@@ -49,6 +49,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkDel, setBulkDel] = useState(false);
+  const [bulkAssign, setBulkAssign] = useState(false);
   const [bulkDone, setBulkDone] = useState(0);
   const [playing, setPlaying] = useState<number | null>(null);
 
@@ -73,20 +74,33 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   }, [isTeacher]);
 
   const doAssign = async () => {
-    if (!assignItem) return;
+    const ids = bulkAssign ? selected : assignItem ? [assignItem.id] : [];
+    if (!ids.length) return;
     if (!pickedGroup && !pickedStudents.length) { setErr("Выберите ученика или группу"); return; }
     setAssigning(true);
+    setBulkDone(0);
+    const target = pickedGroup ? { group_id: pickedGroup } : { student_ids: pickedStudents };
+    let ok = 0;
+    let people = 0;
+    const failed: string[] = [];
     try {
-      const res = await apiAssignLibraryItem({
-        item_id: assignItem.id,
-        ...(pickedGroup ? { group_id: pickedGroup } : { student_ids: pickedStudents }),
-      });
-      if (res.ok) {
-        setAssignItem(null); setPickedStudents([]); setPickedGroup(null);
-        setMsg(`Книга выдана: ${res.assigned} чел.`);
+      for (const id of ids) {
+        const res = await apiAssignLibraryItem({ item_id: id, ...target });
+        if (res.ok) { ok++; people = res.assigned || people; }
+        else failed.push(items.find(i => i.id === id)?.title || `#${id}`);
+        setBulkDone(d => d + 1);
+      }
+      setAssignItem(null); setBulkAssign(false);
+      setPickedStudents([]); setPickedGroup(null);
+      if (ok) {
+        setMsg(ids.length > 1
+          ? `Выдано материалов: ${ok} · получателей: ${people}`
+          : `Книга выдана: ${people} чел.`);
         setTimeout(() => setMsg(""), 4000);
-        load();
-      } else setErr(res.error || "Не удалось выдать");
+        if (bulkAssign) exitSelect();
+      }
+      if (failed.length) setErr(`Не удалось выдать: ${failed.join(", ")}`);
+      load();
     } catch {
       setErr("Нет связи с сервером");
     } finally {
@@ -215,11 +229,19 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
             className="text-xs font-montserrat font-bold text-primary hover:underline">
             {selected.length === shown.length && shown.length > 0 ? "Снять все" : "Выбрать все"}
           </button>
-          <button onClick={() => setBulkDel(true)} disabled={!selected.length}
-            className="ml-auto flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-montserrat font-bold hover:bg-red-700 transition-colors disabled:opacity-50">
-            <Icon name="Trash2" size={13} />
-            Удалить выбранные
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => { setBulkAssign(true); setPickedStudents([]); setPickedGroup(null); }}
+              disabled={!selected.length}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg red-accent text-white text-xs font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
+              <Icon name="Send" size={13} />
+              Выдать выбранные
+            </button>
+            <button onClick={() => setBulkDel(true)} disabled={!selected.length}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-montserrat font-bold hover:bg-red-700 transition-colors disabled:opacity-50">
+              <Icon name="Trash2" size={13} />
+              Удалить
+            </button>
+          </div>
         </div>
       )}
 
@@ -387,12 +409,25 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
       )}
 
       {/* Выдача */}
-      {assignItem && (
+      {(assignItem || bulkAssign) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/40" onClick={() => !assigning && setAssignItem(null)} />
+          <div className="fixed inset-0 bg-black/40"
+            onClick={() => { if (!assigning) { setAssignItem(null); setBulkAssign(false); } }} />
           <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-md p-5 animate-scale-in max-h-[90vh] overflow-y-auto">
-            <h2 className="font-montserrat font-bold text-base text-foreground">Выдать книгу</h2>
-            <p className="text-sm text-muted-foreground font-ibm mb-4 truncate">{assignItem.title}</p>
+            <h2 className="font-montserrat font-bold text-base text-foreground">
+              {bulkAssign ? `Выдать ${selected.length} материалов` : "Выдать книгу"}
+            </h2>
+            {bulkAssign ? (
+              <div className="mt-2 mb-4 max-h-24 overflow-y-auto rounded-lg border border-border divide-y divide-border">
+                {selected.map(id => (
+                  <p key={id} className="px-3 py-1.5 text-xs font-ibm text-foreground truncate">
+                    {items.find(i => i.id === id)?.title || `#${id}`}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground font-ibm mb-4 truncate">{assignItem?.title}</p>
+            )}
 
             {groups.length > 0 && (
               <>
@@ -440,14 +475,26 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
               })}
             </div>
 
+            {assigning && bulkAssign && (
+              <div className="mt-3">
+                <p className="text-xs text-muted-foreground font-ibm mb-1">
+                  Выдано {bulkDone} из {selected.length}
+                </p>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full red-accent transition-all duration-200"
+                    style={{ width: `${(bulkDone / selected.length) * 100}%` }} />
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-2 mt-4">
-              <button onClick={() => setAssignItem(null)} disabled={assigning}
+              <button onClick={() => { setAssignItem(null); setBulkAssign(false); }} disabled={assigning}
                 className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60">
                 Отмена
               </button>
               <button onClick={doAssign} disabled={assigning}
-                className="flex-1 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60">
-                {assigning ? "Выдаю..." : "Выдать"}
+                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60">
+                {assigning ? <><Icon name="Loader" size={14} className="animate-spin" />Выдаю...</> : "Выдать"}
               </button>
             </div>
           </div>
