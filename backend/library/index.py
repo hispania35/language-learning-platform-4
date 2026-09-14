@@ -137,6 +137,8 @@ def handler(event: dict, context) -> dict:
             return assign_item(event, conn, user_id, role)
         if method == "POST" and action == "add_subject":
             return add_subject(event, conn, user_id, role)
+        if method == "POST" and action == "rename_subject":
+            return rename_subject(event, conn, user_id, role)
         if method == "POST" and action == "del_subject":
             return del_subject(event, conn, user_id, role)
         if method == "POST" and action == "setup_cors":
@@ -213,14 +215,22 @@ def list_items(conn, user_id, role):
         it.pop("storage", None)
 
     if role == "teacher":
-        cur.execute("SELECT id, name, color FROM library_subjects WHERE teacher_id=%s ORDER BY name", (user_id,))
+        cur.execute("SELECT id, name, color, parent_id FROM library_subjects WHERE teacher_id=%s ORDER BY name",
+                    (user_id,))
     else:
         sids = [str(i["subject_id"]) for i in items if i.get("subject_id")]
         if sids:
-            cur.execute(f"SELECT id, name, color FROM library_subjects WHERE id IN ({','.join(sids)}) ORDER BY name")
+            cur.execute(
+                f"""WITH RECURSIVE tree AS (
+                        SELECT id, name, color, parent_id FROM library_subjects WHERE id IN ({','.join(sids)})
+                        UNION
+                        SELECT s.id, s.name, s.color, s.parent_id
+                        FROM library_subjects s JOIN tree t ON s.id = t.parent_id
+                    ) SELECT id, name, color, parent_id FROM tree ORDER BY name"""
+            )
         else:
-            cur.execute("SELECT id, name, color FROM library_subjects WHERE 1=0")
-    subjects = [{"id": r[0], "name": r[1], "color": r[2]} for r in cur.fetchall()]
+            cur.execute("SELECT id, name, color, parent_id FROM library_subjects WHERE 1=0")
+    subjects = [{"id": r[0], "name": r[1], "color": r[2], "parent_id": r[3]} for r in cur.fetchall()]
 
     cur.close()
     conn.close()
@@ -229,7 +239,7 @@ def list_items(conn, user_id, role):
 
 
 def add_subject(event, conn, user_id, role):
-    """Добавить новый предмет (язык) в библиотеку."""
+    """Добавить предмет (язык) или каталог внутри предмета."""
     if role != "teacher":
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
@@ -237,26 +247,106 @@ def add_subject(event, conn, user_id, role):
     name = (body.get("name") or "").strip()[:80]
     if not name:
         conn.close()
-        return resp(400, {"error": "Укажите название предмета"})
+        return resp(400, {"error": "Укажите название"})
     color = (body.get("color") or "#c0392b")[:20]
+    parent_raw = body.get("parent_id")
     cur = conn.cursor()
-    cur.execute("SELECT id FROM library_subjects WHERE teacher_id=%s AND lower(name)=lower(%s)", (user_id, name))
+
+    parent_id = None
+    if parent_raw:
+        cur.execute("SELECT id, color, parent_id FROM library_subjects WHERE id=%s AND teacher_id=%s",
+                    (int(parent_raw), user_id))
+        prow = cur.fetchone()
+        if not prow:
+            cur.close()
+            conn.close()
+            return resp(400, {"error": "Предмет не найден"})
+        if prow[2]:
+            cur.close()
+            conn.close()
+            return resp(400, {"error": "Каталог нельзя вложить в другой каталог"})
+        parent_id = prow[0]
+        if not body.get("color"):
+            color = prow[1] or color
+
+    if parent_id:
+        cur.execute(
+            "SELECT id, color FROM library_subjects WHERE teacher_id=%s AND parent_id=%s AND lower(name)=lower(%s)",
+            (user_id, parent_id, name))
+    else:
+        cur.execute(
+            "SELECT id, color FROM library_subjects WHERE teacher_id=%s AND parent_id IS NULL AND lower(name)=lower(%s)",
+            (user_id, name))
     row = cur.fetchone()
     if row:
         cur.close()
         conn.close()
-        return resp(200, {"ok": True, "id": row[0], "name": name, "color": color})
-    cur.execute("INSERT INTO library_subjects (teacher_id, name, color) VALUES (%s,%s,%s) RETURNING id",
-                (user_id, name, color))
+        return resp(200, {"ok": True, "id": row[0], "name": name,
+                          "color": row[1] or color, "parent_id": parent_id})
+
+    cur.execute(
+        "INSERT INTO library_subjects (teacher_id, name, color, parent_id) VALUES (%s,%s,%s,%s) RETURNING id",
+        (user_id, name, color, parent_id))
     sid = cur.fetchone()[0]
     conn.commit()
     cur.close()
     conn.close()
-    return resp(200, {"ok": True, "id": sid, "name": name, "color": color})
+    return resp(200, {"ok": True, "id": sid, "name": name, "color": color, "parent_id": parent_id})
+
+
+def rename_subject(event, conn, user_id, role):
+    """Переименовать предмет или каталог, при желании сменить цвет."""
+    if role != "teacher":
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    body = json.loads(event.get("body") or "{}")
+    sid = body.get("id")
+    name = (body.get("name") or "").strip()[:80]
+    if not sid or not name:
+        conn.close()
+        return resp(400, {"error": "Укажите название"})
+    sid = int(sid)
+    cur = conn.cursor()
+    cur.execute("SELECT parent_id FROM library_subjects WHERE id=%s AND teacher_id=%s", (sid, user_id))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        return resp(404, {"error": "Не найдено"})
+    parent_id = row[0]
+
+    if parent_id:
+        cur.execute(
+            """SELECT id FROM library_subjects
+               WHERE teacher_id=%s AND parent_id=%s AND lower(name)=lower(%s) AND id<>%s""",
+            (user_id, parent_id, name, sid))
+    else:
+        cur.execute(
+            """SELECT id FROM library_subjects
+               WHERE teacher_id=%s AND parent_id IS NULL AND lower(name)=lower(%s) AND id<>%s""",
+            (user_id, name, sid))
+    if cur.fetchone():
+        cur.close()
+        conn.close()
+        return resp(400, {"error": "Такое название уже есть"})
+
+    color = body.get("color")
+    if color:
+        cur.execute("UPDATE library_subjects SET name=%s, color=%s WHERE id=%s AND teacher_id=%s",
+                    (name, str(color)[:20], sid, user_id))
+        if not parent_id:
+            cur.execute("UPDATE library_subjects SET color=%s WHERE parent_id=%s AND teacher_id=%s",
+                        (str(color)[:20], sid, user_id))
+    else:
+        cur.execute("UPDATE library_subjects SET name=%s WHERE id=%s AND teacher_id=%s", (name, sid, user_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return resp(200, {"ok": True, "id": sid, "name": name})
 
 
 def del_subject(event, conn, user_id, role):
-    """Удалить предмет. Файлы остаются, но теряют привязку."""
+    """Удалить предмет вместе с его каталогами. Файлы остаются, но теряют привязку."""
     if role != "teacher":
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
@@ -265,13 +355,25 @@ def del_subject(event, conn, user_id, role):
     if not sid:
         conn.close()
         return resp(400, {"error": "Укажите предмет"})
+    sid = int(sid)
     cur = conn.cursor()
-    cur.execute("UPDATE library_items SET subject_id=NULL WHERE subject_id=%s AND teacher_id=%s", (int(sid), user_id))
-    cur.execute("DELETE FROM library_subjects WHERE id=%s AND teacher_id=%s", (int(sid), user_id))
+    cur.execute("SELECT id FROM library_subjects WHERE id=%s AND teacher_id=%s", (sid, user_id))
+    if not cur.fetchone():
+        cur.close()
+        conn.close()
+        return resp(404, {"error": "Не найдено"})
+
+    cur.execute("SELECT id FROM library_subjects WHERE parent_id=%s AND teacher_id=%s", (sid, user_id))
+    ids = [sid] + [r[0] for r in cur.fetchall()]
+    in_list = ",".join(str(i) for i in ids)
+
+    cur.execute(f"UPDATE library_items SET subject_id=NULL WHERE subject_id IN ({in_list}) AND teacher_id=%s",
+                (user_id,))
+    cur.execute(f"DELETE FROM library_subjects WHERE id IN ({in_list}) AND teacher_id=%s", (user_id,))
     conn.commit()
     cur.close()
     conn.close()
-    return resp(200, {"ok": True})
+    return resp(200, {"ok": True, "removed": len(ids)})
 
 
 def upload_url(event, conn, user_id, role):

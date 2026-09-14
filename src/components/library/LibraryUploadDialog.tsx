@@ -56,7 +56,8 @@ export default function LibraryUploadDialog({
   const [rows, setRows] = useState<Row[]>([]);
   const [author, setAuthor] = useState("");
   const [description, setDescription] = useState("");
-  const [subjectId, setSubjectId] = useState<number | null>(subjects[0]?.id ?? null);
+  const [langId, setLangId] = useState<number | null>(subjects.find(s => !s.parent_id)?.id ?? null);
+  const [subjectId, setSubjectId] = useState<number | null>(null);
   const [newSubject, setNewSubject] = useState("");
   const [addingSubject, setAddingSubject] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -67,7 +68,12 @@ export default function LibraryUploadDialog({
   const fileRef = useRef<HTMLInputElement>(null);
   const dirRef = useRef<HTMLInputElement>(null);
 
-  const subjectName = allSubjects.find(s => s.id === subjectId)?.name;
+  const languages = allSubjects.filter(s => !s.parent_id);
+  const folders = allSubjects.filter(s => s.parent_id === langId);
+  const langName = allSubjects.find(s => s.id === langId)?.name;
+  const folderLabel = allSubjects.find(s => s.id === subjectId)?.name;
+  const subjectName = folderLabel ? `${langName} / ${folderLabel}` : langName;
+  const targetId = subjectId ?? langId;
 
   const addFiles = (list: FileList, fromFolder = false) => {
     const picked = Array.from(list).filter(f => f.size > 0 && !f.name.startsWith("."));
@@ -105,12 +111,14 @@ export default function LibraryUploadDialog({
   const createSubject = async () => {
     const name = newSubject.trim();
     if (!name || addingSubject) return;
+    if (!langId) { setErr("Сначала выберите предмет — каталог создаётся внутри него"); return; }
     setAddingSubject(true);
+    setErr("");
     try {
-      const res = await apiAddLibrarySubject(name);
+      const res = await apiAddLibrarySubject(name, undefined, langId);
       if (res.ok && res.id) {
-        const s = { id: res.id, name: res.name || name, color: res.color } as LibrarySubject;
-        setAllSubjects(prev => [...prev, s]);
+        const s = { id: res.id, name: res.name || name, color: res.color, parent_id: langId } as LibrarySubject;
+        setAllSubjects(prev => prev.some(x => x.id === s.id) ? prev : [...prev, s]);
         setSubjectId(res.id);
         setNewSubject("");
         onDone();
@@ -136,7 +144,7 @@ export default function LibraryUploadDialog({
         title: row.title.trim() || row.file.name,
         author: author.trim(),
         description: description.trim(),
-        subject_id: subjectId,
+        subject_id: targetId,
       };
       try {
         const big = directUpload && row.file.size > SMALL_MB * 1024 * 1024;
@@ -202,34 +210,64 @@ export default function LibraryUploadDialog({
         <div className="rounded-lg border border-border p-3 mb-3">
           <div className="flex items-center gap-2 mb-2">
             <Icon name="FolderOpen" size={15} className="text-primary" />
-            <span className="text-xs font-montserrat font-bold text-foreground">Каталог</span>
+            <span className="text-xs font-montserrat font-bold text-foreground">Куда загрузить</span>
             {subjectName && (
               <span className="text-[11px] text-muted-foreground font-ibm truncate">· {subjectName}</span>
             )}
           </div>
 
+          <p className="text-[11px] font-montserrat font-bold text-muted-foreground mb-1">Предмет</p>
           <div className="flex flex-wrap gap-1.5">
-            {allSubjects.map(s => (
-              <button key={s.id} onClick={() => setSubjectId(subjectId === s.id ? null : s.id)}
+            {languages.map(s => (
+              <button key={s.id} onClick={() => { setLangId(s.id); setSubjectId(null); }}
                 disabled={busy}
                 className={`px-3 py-1.5 rounded-lg text-xs font-montserrat font-bold border transition-colors disabled:opacity-60
-                  ${subjectId === s.id ? "text-white border-transparent" : "text-foreground border-border hover:bg-muted"}`}
-                style={subjectId === s.id ? { background: s.color || "#c0392b" } : undefined}>
+                  ${langId === s.id ? "text-white border-transparent" : "text-foreground border-border hover:bg-muted"}`}
+                style={langId === s.id ? { background: s.color || "#c0392b" } : undefined}>
                 {s.name}
               </button>
             ))}
+            {!languages.length && (
+              <span className="text-xs text-muted-foreground font-ibm">
+                Предметы не созданы — добавьте их в разделе «Предметы»
+              </span>
+            )}
           </div>
 
-          <div className="flex gap-1.5 mt-2">
-            <input value={newSubject} onChange={e => setNewSubject(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") createSubject(); }}
-              disabled={busy} placeholder="Новый каталог, например «Español A1»"
-              className="flex-1 px-3 py-1.5 rounded-lg border border-dashed border-border bg-muted/30 text-xs font-ibm outline-none focus:border-primary/40" />
-            <button onClick={createSubject} disabled={busy || addingSubject || !newSubject.trim()}
-              className="px-3 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors disabled:opacity-50">
-              {addingSubject ? "..." : "Создать"}
-            </button>
-          </div>
+          {!!langId && (
+            <>
+              <p className="text-[11px] font-montserrat font-bold text-muted-foreground mt-3 mb-1">
+                Каталог внутри «{langName}»
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                <button onClick={() => setSubjectId(null)} disabled={busy}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-montserrat font-bold border transition-colors disabled:opacity-60
+                    ${subjectId === null ? "bg-foreground text-background border-transparent" : "text-foreground border-border hover:bg-muted"}`}>
+                  Без каталога
+                </button>
+                {folders.map(s => (
+                  <button key={s.id} onClick={() => setSubjectId(s.id)} disabled={busy}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-montserrat font-bold border transition-colors disabled:opacity-60
+                      ${subjectId === s.id ? "text-white border-transparent" : "text-foreground border-border hover:bg-muted"}`}
+                    style={subjectId === s.id ? { background: s.color || "#c0392b" } : undefined}>
+                    <Icon name="Folder" size={11} />
+                    {s.name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-1.5 mt-2">
+                <input value={newSubject} onChange={e => setNewSubject(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") createSubject(); }}
+                  disabled={busy} placeholder={`Новый каталог в «${langName}»`}
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-dashed border-border bg-muted/30 text-xs font-ibm outline-none focus:border-primary/40" />
+                <button onClick={createSubject} disabled={busy || addingSubject || !newSubject.trim()}
+                  className="px-3 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors disabled:opacity-50">
+                  {addingSubject ? "..." : "Создать"}
+                </button>
+              </div>
+            </>
+          )}
 
           <p className="text-[11px] text-muted-foreground font-ibm mt-2">
             В один каталог можно складывать учебники, аудио и видео вместе

@@ -1,0 +1,1 @@
+UPDATE library_subjects SET parent_id = 1 WHERE id = 7 AND teacher_id = 1 AND parent_id IS NULL;

@@ -170,9 +170,22 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
     load();
   };
 
+  const languages = subjects.filter(s => !s.parent_id);
+  const activeLangId = subjectTab === "all"
+    ? null
+    : subjects.find(s => s.id === subjectTab)?.parent_id ?? subjectTab;
+  const activeFolders = subjects.filter(s => s.parent_id === activeLangId);
+
+  const inSubject = (id?: number | null) => {
+    if (subjectTab === "all") return true;
+    if (id === subjectTab) return true;
+    const parent = subjects.find(s => s.id === id)?.parent_id;
+    return parent === subjectTab;
+  };
+
   const shown = items.filter(i => {
     const okTab = tab === "all" || i.kind === tab;
-    const okSubject = subjectTab === "all" || i.subject_id === subjectTab;
+    const okSubject = inSubject(i.subject_id);
     const okSearch = !search ||
       i.title.toLowerCase().includes(search.toLowerCase()) ||
       (i.author || "").toLowerCase().includes(search.toLowerCase());
@@ -180,6 +193,12 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   });
 
   const subjectById = (id?: number | null) => subjects.find(s => s.id === id);
+  const subjectPath = (id?: number | null) => {
+    const s = subjectById(id);
+    if (!s) return "";
+    const parent = s.parent_id ? subjectById(s.parent_id) : null;
+    return parent ? `${parent.name} / ${s.name}` : s.name;
+  };
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -252,11 +271,11 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
               ${subjectTab === "all" ? "bg-foreground text-background border-transparent" : "text-foreground border-border hover:bg-muted"}`}>
             Все предметы
           </button>
-          {subjects.map(s => (
-            <button key={s.id} onClick={() => setSubjectTab(s.id)}
+          {languages.map(s => (
+            <button key={s.id} onClick={() => setSubjectTab(subjectTab === s.id ? "all" : s.id)}
               className={`px-3 py-1.5 rounded-lg text-xs font-montserrat font-bold border transition-colors
-                ${subjectTab === s.id ? "text-white border-transparent" : "text-foreground border-border hover:bg-muted"}`}
-              style={subjectTab === s.id ? { background: s.color || "#c0392b" } : undefined}>
+                ${activeLangId === s.id ? "text-white border-transparent" : "text-foreground border-border hover:bg-muted"}`}
+              style={activeLangId === s.id ? { background: s.color || "#c0392b" } : undefined}>
               {s.name}
             </button>
           ))}
@@ -267,6 +286,26 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
               Предметы
             </button>
           )}
+        </div>
+      )}
+
+      {!!activeLangId && !!activeFolders.length && (
+        <div className="flex flex-wrap items-center gap-1.5 pl-1">
+          <Icon name="CornerDownRight" size={13} className="text-muted-foreground" />
+          <button onClick={() => setSubjectTab(activeLangId)}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-montserrat font-bold border transition-colors
+              ${subjectTab === activeLangId ? "bg-foreground text-background border-transparent" : "text-foreground border-border hover:bg-muted"}`}>
+            Всё
+          </button>
+          {activeFolders.map(f => (
+            <button key={f.id} onClick={() => setSubjectTab(f.id)}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-montserrat font-bold border transition-colors
+                ${subjectTab === f.id ? "text-white border-transparent" : "text-foreground border-border hover:bg-muted"}`}
+              style={subjectTab === f.id ? { background: f.color || "#c0392b" } : undefined}>
+              <Icon name="Folder" size={11} />
+              {f.name}
+            </button>
+          ))}
         </div>
       )}
 
@@ -326,7 +365,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
                     {subjectById(item.subject_id) && (
                       <span className="px-1.5 py-0.5 rounded text-white font-montserrat font-bold text-[10px]"
                         style={{ background: subjectById(item.subject_id)?.color || "#c0392b" }}>
-                        {subjectById(item.subject_id)?.name}
+                        {subjectPath(item.subject_id)}
                       </span>
                     )}
                     <span>

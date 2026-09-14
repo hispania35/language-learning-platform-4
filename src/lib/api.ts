@@ -570,6 +570,7 @@ export interface LibrarySubject {
   id: number;
   name: string;
   color?: string;
+  parent_id?: number | null;
 }
 
 export async function apiGetLibrary() {
@@ -580,11 +581,21 @@ export async function apiGetLibrary() {
   };
 }
 
-export async function apiAddLibrarySubject(name: string, color?: string) {
+export async function apiAddLibrarySubject(name: string, color?: string, parentId?: number | null) {
   const r = await request(LIBRARY_URL + "?p=add_subject", {
-    method: "POST", body: JSON.stringify({ name, color }),
+    method: "POST", body: JSON.stringify({ name, color, parent_id: parentId ?? null }),
   });
-  return r.data as { ok?: boolean; id?: number; name?: string; color?: string; error?: string };
+  return r.data as {
+    ok?: boolean; id?: number; name?: string; color?: string;
+    parent_id?: number | null; error?: string;
+  };
+}
+
+export async function apiRenameLibrarySubject(id: number, name: string, color?: string) {
+  const r = await request(LIBRARY_URL + "?p=rename_subject", {
+    method: "POST", body: JSON.stringify({ id, name, color }),
+  });
+  return r.data as { ok?: boolean; error?: string };
 }
 
 export async function apiDeleteLibrarySubject(id: number) {
