@@ -147,12 +147,12 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
               src={url}
               title="Видеоурок"
               allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
-              className="w-full h-[70vh] min-h-[480px] border-0"
+              className="w-full h-[calc(100vh-190px)] min-h-[420px] border-0"
             />
           </div>
 
           {chatOpen && (
-            <div className="lg:w-80 lg:flex-shrink-0 bg-card rounded-xl border border-border overflow-hidden h-[70vh] min-h-[480px] flex flex-col animate-fade-in">
+            <div className="lg:w-80 lg:flex-shrink-0 bg-card rounded-xl border border-border overflow-hidden h-[calc(100vh-190px)] min-h-[420px] flex flex-col animate-fade-in">
               <div className="px-3 py-2 border-b border-border flex items-center gap-2">
                 <Icon name="MessageSquare" size={14} className="text-primary" />
                 <p className="text-sm font-montserrat font-bold text-foreground flex-1">Чат урока</p>

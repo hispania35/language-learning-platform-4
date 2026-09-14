@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
+import Footer from "@/components/Footer";
 import { apiLogin, apiRegister, apiResetRequest } from "@/lib/api";
 
 export type UserRole = "student" | "teacher";
@@ -426,6 +427,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             Вопросы? Напишите нам на{" "}
             <a href="mailto:hispania35@yandex.ru" className="text-primary hover:underline">hispania35@yandex.ru</a>
           </p>
+
+          <Footer />
         </div>
       </div>
     </div>

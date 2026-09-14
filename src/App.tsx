@@ -12,7 +12,6 @@ import LessonRoomPage from "./pages/LessonRoomPage";
 import LoginPage, { type User } from "./pages/LoginPage";
 import Sidebar from "./components/Sidebar";
 import TopBar from "./components/TopBar";
-import Footer from "./components/Footer";
 import ChatToasts from "./components/ChatToasts";
 import { ChatAlertsProvider } from "./hooks/useChatAlerts";
 import { apiMe, apiLogout } from "./lib/api";
@@ -134,7 +133,6 @@ export default function App() {
               {renderPage()}
             </div>
           </main>
-          <Footer />
         </div>
       </div>
     </ChatAlertsProvider>
