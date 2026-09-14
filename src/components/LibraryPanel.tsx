@@ -60,6 +60,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const [newFolderName, setNewFolderName] = useState("");
   const [folderBusy, setFolderBusy] = useState(false);
   const [delFolder, setDelFolder] = useState<LibrarySubject | null>(null);
+  const [downloadId, setDownloadId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     apiGetLibrary()
@@ -176,6 +177,48 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
     }
     if (failed.length) setErr(`Не удалось удалить: ${failed.join(", ")}`);
     load();
+  };
+
+  const extOf = (item: LibraryItem) => {
+    const fromName = item.file_name?.match(/\.[a-z0-9]{1,5}$/i)?.[0];
+    if (fromName) return fromName;
+    const fromUrl = item.file_url.split("?")[0].match(/\.[a-z0-9]{1,5}$/i)?.[0];
+    return fromUrl || "";
+  };
+
+  const saveBlob = (blob: Blob, name: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+
+  const downloadFile = async (item: LibraryItem) => {
+    if (downloadId) return;
+    const name = item.file_name || `${item.title}${extOf(item)}`;
+    const src = item.download_url || item.file_url;
+    setDownloadId(item.id);
+    setErr("");
+    try {
+      const r = await fetch(src);
+      if (!r.ok) throw new Error("http");
+      saveBlob(await r.blob(), name);
+    } catch {
+      const a = document.createElement("a");
+      a.href = src;
+      a.download = name;
+      a.target = "_blank";
+      a.rel = "noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      setDownloadId(null);
+    }
   };
 
   const saveFolderName = async () => {
@@ -532,11 +575,19 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
               )}
 
               <div className={`mt-3 flex gap-2 ${selectMode ? "hidden" : ""}`}>
-                <a href={item.file_url} target="_blank" rel="noreferrer"
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
-                  <Icon name="Download" size={14} />
-                  {item.kind === "book" ? "Открыть" : "Скачать"}
-                </a>
+                {item.kind === "book" && (
+                  <a href={item.file_url} target="_blank" rel="noreferrer"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+                    <Icon name="BookOpen" size={14} />
+                    Открыть
+                  </a>
+                )}
+                <button onClick={() => downloadFile(item)} disabled={downloadId === item.id}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60">
+                  <Icon name={downloadId === item.id ? "Loader" : "Download"} size={14}
+                    className={downloadId === item.id ? "animate-spin" : ""} />
+                  {downloadId === item.id ? "Готовлю..." : "Скачать"}
+                </button>
 
                 {isTeacher && (
                   <>

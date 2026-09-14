@@ -557,6 +557,7 @@ export interface LibraryItem {
   description?: string;
   kind: "book" | "audio" | "video";
   file_url: string;
+  download_url?: string;
   file_name?: string;
   mime?: string;
   size_bytes?: number;

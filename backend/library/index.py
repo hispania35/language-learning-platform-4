@@ -9,6 +9,7 @@ import json
 import os
 import base64
 import uuid
+import urllib.parse
 import psycopg2
 
 CORS = {
@@ -72,10 +73,13 @@ def ext_public_url(key):
     return f"{endpoint}/{os.environ['LIB_S3_BUCKET']}/{key}"
 
 
-def ext_signed_url(key, file_name=None):
+def ext_signed_url(key, file_name=None, attachment=False):
     params = {"Bucket": os.environ["LIB_S3_BUCKET"], "Key": key}
     if file_name:
-        params["ResponseContentDisposition"] = f'inline; filename="{file_name}"'
+        safe = file_name.replace('"', "")
+        quoted = urllib.parse.quote(file_name)
+        mode = "attachment" if attachment else "inline"
+        params["ResponseContentDisposition"] = f"{mode}; filename=\"{safe}\"; filename*=UTF-8''{quoted}"
     return ext_client().generate_presigned_url(
         "get_object", Params=params, ExpiresIn=86400
     )
@@ -206,11 +210,12 @@ def list_items(conn, user_id, role):
                 by_id[item_id]["students"].append({"id": sid, "name": sname, "avatar": savatar})
 
     direct = ext_storage_ready()
-    if direct:
-        for it in items:
-            if it.get("storage") == "external" and it.get("file_key"):
-                it["file_url"] = ext_signed_url(it["file_key"], it.get("file_name"))
     for it in items:
+        if direct and it.get("storage") == "external" and it.get("file_key"):
+            it["file_url"] = ext_signed_url(it["file_key"], it.get("file_name"))
+            it["download_url"] = ext_signed_url(it["file_key"], it.get("file_name"), attachment=True)
+        else:
+            it["download_url"] = it.get("file_url")
         it.pop("file_key", None)
         it.pop("storage", None)
 
