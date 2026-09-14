@@ -46,6 +46,10 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
 
   const [delItem, setDelItem] = useState<LibraryItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<number[]>([]);
+  const [bulkDel, setBulkDel] = useState(false);
+  const [bulkDone, setBulkDone] = useState(0);
   const [playing, setPlaying] = useState<number | null>(null);
 
   const load = useCallback(() => {
@@ -115,6 +119,43 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
     }
   };
 
+  const toggleSel = (id: number) =>
+    setSelected(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+
+  const exitSelect = () => { setSelectMode(false); setSelected([]); };
+
+  const doBulkDelete = async () => {
+    if (!selected.length || deleting) return;
+    setDeleting(true);
+    setErr("");
+    setBulkDone(0);
+    let ok = 0;
+    const failed: string[] = [];
+    for (const id of selected) {
+      try {
+        const res = await apiDeleteLibraryItem(id);
+        if (res.ok) {
+          ok++;
+          setItems(prev => prev.filter(i => i.id !== id));
+        } else {
+          failed.push(items.find(i => i.id === id)?.title || `#${id}`);
+        }
+      } catch {
+        failed.push(items.find(i => i.id === id)?.title || `#${id}`);
+      }
+      setBulkDone(d => d + 1);
+    }
+    setDeleting(false);
+    setBulkDel(false);
+    exitSelect();
+    if (ok) {
+      setMsg(`Удалено файлов: ${ok}`);
+      setTimeout(() => setMsg(""), 4000);
+    }
+    if (failed.length) setErr(`Не удалось удалить: ${failed.join(", ")}`);
+    load();
+  };
+
   const shown = items.filter(i => {
     const okTab = tab === "all" || i.kind === tab;
     const okSubject = subjectTab === "all" || i.subject_id === subjectTab;
@@ -147,13 +188,40 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
         </div>
 
         {isTeacher && (
-          <button onClick={() => setShowAdd(true)}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 red-accent text-white rounded-xl text-sm font-montserrat font-bold hover:opacity-90 transition-opacity">
-            <Icon name="Upload" size={16} />
-            Загрузить
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setShowAdd(true)}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 red-accent text-white rounded-xl text-sm font-montserrat font-bold hover:opacity-90 transition-opacity">
+              <Icon name="Upload" size={16} />
+              Загрузить
+            </button>
+            {!!items.length && (
+              <button onClick={() => (selectMode ? exitSelect() : setSelectMode(true))}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-montserrat font-bold transition-colors
+                  ${selectMode ? "border-primary text-primary bg-primary/5" : "border-border text-foreground hover:bg-muted"}`}>
+                <Icon name={selectMode ? "X" : "ListChecks"} size={16} />
+                {selectMode ? "Отменить" : "Выбрать"}
+              </button>
+            )}
+          </div>
         )}
       </div>
+
+      {isTeacher && selectMode && (
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 rounded-xl border border-primary/30 bg-primary/5 sticky top-2 z-10">
+          <span className="text-sm font-montserrat font-bold text-foreground">
+            Выбрано: {selected.length}
+          </span>
+          <button onClick={() => setSelected(selected.length === shown.length ? [] : shown.map(i => i.id))}
+            className="text-xs font-montserrat font-bold text-primary hover:underline">
+            {selected.length === shown.length && shown.length > 0 ? "Снять все" : "Выбрать все"}
+          </button>
+          <button onClick={() => setBulkDel(true)} disabled={!selected.length}
+            className="ml-auto flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-montserrat font-bold hover:bg-red-700 transition-colors disabled:opacity-50">
+            <Icon name="Trash2" size={13} />
+            Удалить выбранные
+          </button>
+        </div>
+      )}
 
       {(subjects.length > 0 || isTeacher) && (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -208,11 +276,23 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {shown.map(item => (
-            <div key={item.id} className="bg-card rounded-xl border border-border p-4">
+            <div key={item.id}
+              onClick={() => selectMode && toggleSel(item.id)}
+              className={`bg-card rounded-xl border p-4 transition-colors
+                ${selectMode ? "cursor-pointer" : ""}
+                ${selectMode && selected.includes(item.id) ? "border-primary ring-1 ring-primary/30 bg-primary/5" : "border-border"}`}>
               <div className="flex items-start gap-3">
-                <span className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${kindStyle(item.kind)}`}>
-                  <Icon name={kindIcon(item.kind)} size={20} />
-                </span>
+                {selectMode ? (
+                  <span className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 border-2 transition-colors
+                    ${selected.includes(item.id) ? "red-accent border-transparent" : "border-border bg-muted/30"}`}>
+                    <Icon name={selected.includes(item.id) ? "Check" : kindIcon(item.kind)} size={20}
+                      className={selected.includes(item.id) ? "text-white" : "text-muted-foreground"} />
+                  </span>
+                ) : (
+                  <span className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${kindStyle(item.kind)}`}>
+                    <Icon name={kindIcon(item.kind)} size={20} />
+                  </span>
+                )}
 
                 <div className="min-w-0 flex-1">
                   <p className="font-montserrat font-bold text-sm text-foreground truncate">{item.title}</p>
@@ -236,7 +316,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
                 </div>
               </div>
 
-              {(item.kind === "audio" || item.kind === "video") && (
+              {!selectMode && (item.kind === "audio" || item.kind === "video") && (
                 <div className="mt-3">
                   {playing === item.id ? (
                     item.kind === "video"
@@ -252,7 +332,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
                 </div>
               )}
 
-              <div className="mt-3 flex gap-2">
+              <div className={`mt-3 flex gap-2 ${selectMode ? "hidden" : ""}`}>
                 <a href={item.file_url} target="_blank" rel="noreferrer"
                   className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
                   <Icon name="Download" size={14} />
@@ -368,6 +448,55 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
               <button onClick={doAssign} disabled={assigning}
                 className="flex-1 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60">
                 {assigning ? "Выдаю..." : "Выдать"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Массовое удаление */}
+      {bulkDel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => !deleting && setBulkDel(false)} />
+          <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 animate-scale-in">
+            <h2 className="font-montserrat font-bold text-base text-foreground mb-1">
+              Удалить {selected.length} файлов?
+            </h2>
+            <p className="text-sm text-muted-foreground font-ibm mb-3">
+              Файлы удалятся безвозвратно, ученики потеряют к ним доступ.
+            </p>
+
+            <div className="max-h-32 overflow-y-auto rounded-lg border border-border divide-y divide-border mb-4">
+              {selected.map(id => {
+                const it = items.find(i => i.id === id);
+                return (
+                  <p key={id} className="px-3 py-1.5 text-xs font-ibm text-foreground truncate">
+                    {it?.title || `#${id}`}
+                  </p>
+                );
+              })}
+            </div>
+
+            {deleting && (
+              <div className="mb-3">
+                <p className="text-xs text-muted-foreground font-ibm mb-1">
+                  Удалено {bulkDone} из {selected.length}
+                </p>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div className="h-full red-accent transition-all duration-200"
+                    style={{ width: `${(bulkDone / selected.length) * 100}%` }} />
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <button onClick={() => setBulkDel(false)} disabled={deleting}
+                className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60">
+                Отмена
+              </button>
+              <button onClick={doBulkDelete} disabled={deleting}
+                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-bold hover:bg-red-700 transition-colors disabled:opacity-70">
+                {deleting ? <><Icon name="Loader" size={14} className="animate-spin" />Удаляю...</> : "Удалить всё"}
               </button>
             </div>
           </div>
