@@ -45,6 +45,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const [assigning, setAssigning] = useState(false);
 
   const [delItem, setDelItem] = useState<LibraryItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [playing, setPlaying] = useState<number | null>(null);
 
   const load = useCallback(() => {
@@ -90,10 +91,28 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   };
 
   const doDelete = async () => {
-    if (!delItem) return;
-    const res = await apiDeleteLibraryItem(delItem.id);
-    if (res.ok) { setDelItem(null); load(); }
-    else setErr(res.error || "Не удалось удалить");
+    if (!delItem || deleting) return;
+    setDeleting(true);
+    setErr("");
+    try {
+      const res = await apiDeleteLibraryItem(delItem.id);
+      if (res.ok) {
+        const gone = delItem.id;
+        setItems(prev => prev.filter(i => i.id !== gone));
+        setDelItem(null);
+        setMsg("Файл удалён из библиотеки");
+        setTimeout(() => setMsg(""), 4000);
+        load();
+      } else {
+        setDelItem(null);
+        setErr(res.error || "Не удалось удалить файл");
+      }
+    } catch {
+      setDelItem(null);
+      setErr("Нет связи с сервером, попробуйте ещё раз");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const shown = items.filter(i => {
@@ -358,20 +377,20 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
       {/* Удаление */}
       {delItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/40" onClick={() => setDelItem(null)} />
+          <div className="fixed inset-0 bg-black/40" onClick={() => !deleting && setDelItem(null)} />
           <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 animate-scale-in">
             <h2 className="font-montserrat font-bold text-base text-foreground mb-1">Удалить из библиотеки?</h2>
             <p className="text-sm text-muted-foreground font-ibm mb-4">
               «{delItem.title}» — файл удалится безвозвратно, ученики потеряют доступ.
             </p>
             <div className="flex gap-2">
-              <button onClick={() => setDelItem(null)}
-                className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+              <button onClick={() => setDelItem(null)} disabled={deleting}
+                className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60">
                 Отмена
               </button>
-              <button onClick={doDelete}
-                className="flex-1 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-bold hover:bg-red-700 transition-colors">
-                Удалить
+              <button onClick={doDelete} disabled={deleting}
+                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-bold hover:bg-red-700 transition-colors disabled:opacity-70">
+                {deleting ? <><Icon name="Loader" size={14} className="animate-spin" />Удаляю...</> : "Удалить"}
               </button>
             </div>
           </div>

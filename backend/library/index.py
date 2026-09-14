@@ -31,13 +31,18 @@ def resp(code, data):
     }
 
 
-def s3_client():
+def s3_client(fast=False):
     import boto3
+    kw = {}
+    if fast:
+        from botocore.config import Config
+        kw["config"] = Config(connect_timeout=2, read_timeout=2, retries={"max_attempts": 1})
     return boto3.client(
         "s3",
         endpoint_url="https://bucket.poehali.dev",
         aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
         aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+        **kw,
     )
 
 
@@ -46,16 +51,19 @@ def ext_storage_ready():
                ("LIB_S3_ENDPOINT", "LIB_S3_BUCKET", "LIB_S3_KEY_ID", "LIB_S3_SECRET_KEY"))
 
 
-def ext_client():
+def ext_client(fast=False):
     import boto3
     from botocore.config import Config
+    cfg = dict(signature_version="s3v4")
+    if fast:
+        cfg.update(connect_timeout=2, read_timeout=2, retries={"max_attempts": 1})
     return boto3.client(
         "s3",
         endpoint_url=os.environ["LIB_S3_ENDPOINT"],
         aws_access_key_id=os.environ["LIB_S3_KEY_ID"],
         aws_secret_access_key=os.environ["LIB_S3_SECRET_KEY"],
         region_name=os.environ.get("LIB_S3_REGION", "ru-central1"),
-        config=Config(signature_version="s3v4"),
+        config=Config(**cfg),
     )
 
 
@@ -387,6 +395,7 @@ def delete_item(event, conn, user_id, role):
     if not item_id:
         conn.close()
         return resp(400, {"error": "Укажите книгу"})
+    item_id = int(item_id)
 
     cur = conn.cursor()
     cur.execute("SELECT file_key, COALESCE(storage,'internal') FROM library_items WHERE id=%s AND teacher_id=%s",
@@ -397,20 +406,23 @@ def delete_item(event, conn, user_id, role):
         conn.close()
         return resp(404, {"error": "Книга не найдена"})
 
-    if row[0]:
-        try:
-            if row[1] == "external" and ext_storage_ready():
-                ext_client().delete_object(Bucket=os.environ["LIB_S3_BUCKET"], Key=row[0])
-            else:
-                s3_client().delete_object(Bucket="files", Key=row[0])
-        except Exception:
-            pass
-
+    # Сначала чистим базу и фиксируем — иначе висящая транзакция блокирует таблицу
     cur.execute("DELETE FROM library_assignments WHERE item_id=%s", (item_id,))
     cur.execute("DELETE FROM library_items WHERE id=%s AND teacher_id=%s", (item_id, user_id))
     conn.commit()
     cur.close()
     conn.close()
+
+    # Файл удаляем после — с коротким таймаутом, чтобы не подвесить запрос
+    if row[0]:
+        try:
+            if row[1] == "external" and ext_storage_ready():
+                ext_client(fast=True).delete_object(Bucket=os.environ["LIB_S3_BUCKET"], Key=row[0])
+            else:
+                s3_client(fast=True).delete_object(Bucket="files", Key=row[0])
+        except Exception:
+            pass
+
     return resp(200, {"ok": True})
 
 
