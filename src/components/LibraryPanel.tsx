@@ -16,6 +16,13 @@ const fmtSize = (b?: number) => {
   return `${(b / 1024 / 1024 / 1024).toFixed(2)} ГБ`;
 };
 
+const plural = (n: number, one: string, few: string, many: string) => {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+  return many;
+};
+
 const kindIcon = (k: string) => (k === "audio" ? "Music" : k === "video" ? "Video" : "BookOpen");
 const kindLabel = (k: string) => (k === "audio" ? "Аудио" : k === "video" ? "Видео" : "Книга");
 const kindStyle = (k: string) =>
@@ -61,6 +68,8 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const [folderBusy, setFolderBusy] = useState(false);
   const [delFolder, setDelFolder] = useState<LibrarySubject | null>(null);
   const [downloadId, setDownloadId] = useState<number | null>(null);
+  const [zipBusy, setZipBusy] = useState(false);
+  const [zipDone, setZipDone] = useState(0);
 
   const load = useCallback(() => {
     apiGetLibrary()
@@ -197,6 +206,56 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   };
 
+  const downloadZip = async (list: LibraryItem[], zipName: string) => {
+    if (!list.length || zipBusy) return;
+    setZipBusy(true);
+    setZipDone(0);
+    setErr("");
+    const failed: string[] = [];
+    try {
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const used = new Set<string>();
+
+      for (const item of list) {
+        try {
+          const r = await fetch(item.download_url || item.file_url);
+          if (!r.ok) throw new Error("http");
+          let name = item.file_name || `${item.title}${extOf(item)}`;
+          if (used.has(name)) {
+            const dot = name.lastIndexOf(".");
+            const base = dot > 0 ? name.slice(0, dot) : name;
+            const ext = dot > 0 ? name.slice(dot) : "";
+            let n = 2;
+            while (used.has(`${base} (${n})${ext}`)) n++;
+            name = `${base} (${n})${ext}`;
+          }
+          used.add(name);
+          zip.file(name, await r.blob());
+        } catch {
+          failed.push(item.title);
+        }
+        setZipDone(d => d + 1);
+      }
+
+      if (!used.size) {
+        setErr("Не удалось скачать ни один файл");
+        return;
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      saveBlob(blob, `${zipName.replace(/[\\/:*?"<>|]/g, "-")}.zip`);
+      setMsg(failed.length
+        ? `Архив готов: ${used.size} файлов. Не вошли: ${failed.join(", ")}`
+        : `Архив готов: ${used.size} файлов`);
+      setTimeout(() => setMsg(""), 5000);
+    } catch {
+      setErr("Не удалось собрать архив");
+    } finally {
+      setZipBusy(false);
+      setZipDone(0);
+    }
+  };
+
   const downloadFile = async (item: LibraryItem) => {
     if (downloadId) return;
     const name = item.file_name || `${item.title}${extOf(item)}`;
@@ -313,6 +372,20 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
     return okTab && okSubject && okSearch;
   });
 
+  const zipLabel = (() => {
+    const base = subjectTab === "all"
+      ? "Библиотека"
+      : (() => {
+          const s = subjects.find(x => x.id === subjectTab);
+          if (!s) return "Библиотека";
+          const parent = s.parent_id ? subjects.find(x => x.id === s.parent_id) : null;
+          return parent ? `${parent.name} - ${s.name}` : s.name;
+        })();
+    const kindPart = tab === "all" ? "" :
+      tab === "book" ? " - учебники" : tab === "audio" ? " - аудио" : " - видео";
+    return base + kindPart;
+  })();
+
   const subjectById = (id?: number | null) => subjects.find(s => s.id === id);
   const subjectPath = (id?: number | null) => {
     const s = subjectById(id);
@@ -369,7 +442,19 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
             className="text-xs font-montserrat font-bold text-primary hover:underline">
             {selected.length === shown.length && shown.length > 0 ? "Снять все" : "Выбрать все"}
           </button>
+          {zipBusy && (
+            <span className="text-xs font-ibm text-muted-foreground">
+              Собираю: {zipDone} из {selected.length}
+            </span>
+          )}
           <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => downloadZip(items.filter(i => selected.includes(i.id)), zipLabel)}
+              disabled={!selected.length || zipBusy}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-border bg-card text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors disabled:opacity-50">
+              <Icon name={zipBusy ? "Loader" : "Download"} size={13} className={zipBusy ? "animate-spin" : ""} />
+              Скачать
+            </button>
             <button onClick={() => { setBulkAssign(true); setPickedStudents([]); setPickedGroup(null); }}
               disabled={!selected.length}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg red-accent text-white text-xs font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-50">
@@ -501,6 +586,28 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200">
           <Icon name="Check" size={14} className="text-green-600 flex-shrink-0" />
           <p className="text-xs text-green-700 font-ibm">{msg}</p>
+        </div>
+      )}
+
+      {!loading && shown.length > 1 && !selectMode && (
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl border border-border bg-muted/20">
+          <Icon name="FolderDown" size={15} className="text-primary flex-shrink-0" />
+          <span className="text-xs font-ibm text-muted-foreground">
+            {zipBusy
+              ? `Собираю архив: ${zipDone} из ${shown.length}`
+              : `${shown.length} ${plural(shown.length, "материал", "материала", "материалов")}${zipLabel !== "Библиотека" ? ` · ${zipLabel}` : ""}`}
+          </span>
+          {zipBusy && (
+            <span className="flex-1 min-w-[80px] h-1.5 rounded-full bg-muted overflow-hidden">
+              <span className="block h-full red-accent transition-all duration-200"
+                style={{ width: `${(zipDone / shown.length) * 100}%` }} />
+            </span>
+          )}
+          <button onClick={() => downloadZip(shown, zipLabel)} disabled={zipBusy}
+            className="ml-auto flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-border bg-card text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors disabled:opacity-60">
+            <Icon name={zipBusy ? "Loader" : "Download"} size={13} className={zipBusy ? "animate-spin" : ""} />
+            {zipBusy ? "Собираю..." : "Скачать всё архивом"}
+          </button>
         </div>
       )}
 
