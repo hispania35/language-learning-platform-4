@@ -5,6 +5,7 @@ import SubjectsDialog from "@/components/library/SubjectsDialog";
 import {
   apiGetLibrary, apiDeleteLibraryItem, apiAssignLibraryItem,
   apiGetStudents, apiGetGroups,
+  apiAddLibrarySubject, apiRenameLibrarySubject, apiDeleteLibrarySubject,
   type LibraryItem, type LibrarySubject, type StudentInfo, type StudentGroup,
 } from "@/lib/api";
 
@@ -52,6 +53,13 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const [bulkAssign, setBulkAssign] = useState(false);
   const [bulkDone, setBulkDone] = useState(0);
   const [playing, setPlaying] = useState<number | null>(null);
+
+  const [editFolderId, setEditFolderId] = useState<number | null>(null);
+  const [editFolderName, setEditFolderName] = useState("");
+  const [addingFolder, setAddingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [folderBusy, setFolderBusy] = useState(false);
+  const [delFolder, setDelFolder] = useState<LibrarySubject | null>(null);
 
   const load = useCallback(() => {
     apiGetLibrary()
@@ -168,6 +176,76 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
     }
     if (failed.length) setErr(`Не удалось удалить: ${failed.join(", ")}`);
     load();
+  };
+
+  const saveFolderName = async () => {
+    if (editFolderId === null || folderBusy) return;
+    const id = editFolderId;
+    const name = editFolderName.trim();
+    const was = subjects.find(s => s.id === id)?.name;
+    setEditFolderId(null);
+    if (!name || name === was) return;
+    setFolderBusy(true);
+    setErr("");
+    try {
+      const res = await apiRenameLibrarySubject(id, name);
+      if (res.ok) {
+        setSubjects(prev => prev.map(s => (s.id === id ? { ...s, name } : s)));
+        setMsg("Каталог переименован");
+        setTimeout(() => setMsg(""), 3000);
+        load();
+      } else setErr(res.error || "Не удалось переименовать каталог");
+    } catch {
+      setErr("Нет связи с сервером");
+    } finally {
+      setFolderBusy(false);
+    }
+  };
+
+  const createFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name || !activeLangId || folderBusy) return;
+    setFolderBusy(true);
+    setErr("");
+    try {
+      const res = await apiAddLibrarySubject(name, undefined, activeLangId);
+      if (res.ok) {
+        setAddingFolder(false);
+        setNewFolderName("");
+        setMsg(`Каталог «${name}» создан`);
+        setTimeout(() => setMsg(""), 3000);
+        load();
+      } else setErr(res.error || "Не удалось создать каталог");
+    } catch {
+      setErr("Нет связи с сервером");
+    } finally {
+      setFolderBusy(false);
+    }
+  };
+
+  const removeFolder = async () => {
+    if (!delFolder || folderBusy) return;
+    const id = delFolder.id;
+    setFolderBusy(true);
+    setErr("");
+    try {
+      const res = await apiDeleteLibrarySubject(id);
+      if (res.ok) {
+        if (subjectTab === id) setSubjectTab(delFolder.parent_id ?? "all");
+        setDelFolder(null);
+        setMsg("Каталог удалён, файлы остались в библиотеке");
+        setTimeout(() => setMsg(""), 4000);
+        load();
+      } else {
+        setDelFolder(null);
+        setErr(res.error || "Не удалось удалить каталог");
+      }
+    } catch {
+      setDelFolder(null);
+      setErr("Нет связи с сервером");
+    } finally {
+      setFolderBusy(false);
+    }
   };
 
   const languages = subjects.filter(s => !s.parent_id);
@@ -289,7 +367,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
         </div>
       )}
 
-      {!!activeLangId && !!activeFolders.length && (
+      {!!activeLangId && (!!activeFolders.length || isTeacher) && (
         <div className="flex flex-wrap items-center gap-1.5 pl-1">
           <Icon name="CornerDownRight" size={13} className="text-muted-foreground" />
           <button onClick={() => setSubjectTab(activeLangId)}
@@ -298,14 +376,74 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
             Всё
           </button>
           {activeFolders.map(f => (
-            <button key={f.id} onClick={() => setSubjectTab(f.id)}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-montserrat font-bold border transition-colors
-                ${subjectTab === f.id ? "text-white border-transparent" : "text-foreground border-border hover:bg-muted"}`}
+            <span key={f.id}
+              className={`flex items-center rounded-lg border transition-colors overflow-hidden
+                ${subjectTab === f.id ? "border-transparent text-white" : "border-border text-foreground"}`}
               style={subjectTab === f.id ? { background: f.color || "#c0392b" } : undefined}>
-              <Icon name="Folder" size={11} />
-              {f.name}
-            </button>
+
+              {editFolderId === f.id ? (
+                <input autoFocus value={editFolderName} disabled={folderBusy}
+                  onChange={e => setEditFolderName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") saveFolderName();
+                    if (e.key === "Escape") setEditFolderId(null);
+                  }}
+                  onBlur={saveFolderName}
+                  className="px-2.5 py-1 w-40 bg-card text-foreground text-[11px] font-montserrat font-bold outline-none" />
+              ) : (
+                <button onClick={() => setSubjectTab(f.id)}
+                  className={`flex items-center gap-1 pl-2.5 pr-2 py-1 text-[11px] font-montserrat font-bold
+                    ${subjectTab === f.id ? "" : "hover:bg-muted"}`}>
+                  <Icon name="Folder" size={11} />
+                  {f.name}
+                </button>
+              )}
+
+              {isTeacher && editFolderId !== f.id && (
+                <span className={`flex items-center pr-1 gap-0.5 ${subjectTab === f.id ? "" : "bg-transparent"}`}>
+                  <button title="Переименовать каталог"
+                    onClick={() => { setEditFolderId(f.id); setEditFolderName(f.name); setDelFolder(null); }}
+                    className={`w-5 h-5 rounded flex items-center justify-center transition-colors
+                      ${subjectTab === f.id ? "hover:bg-white/25" : "text-muted-foreground hover:bg-muted"}`}>
+                    <Icon name="Pencil" size={10} />
+                  </button>
+                  <button title="Удалить каталог"
+                    onClick={() => setDelFolder(f)}
+                    className={`w-5 h-5 rounded flex items-center justify-center transition-colors
+                      ${subjectTab === f.id ? "hover:bg-white/25" : "text-red-600 hover:bg-red-50"}`}>
+                    <Icon name="Trash2" size={10} />
+                  </button>
+                </span>
+              )}
+            </span>
           ))}
+
+          {isTeacher && !!activeLangId && (
+            addingFolder ? (
+              <span className="flex items-center gap-1">
+                <input autoFocus value={newFolderName} disabled={folderBusy}
+                  onChange={e => setNewFolderName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") createFolder();
+                    if (e.key === "Escape") setAddingFolder(false);
+                  }}
+                  placeholder="Название каталога"
+                  className="px-2.5 py-1 w-44 rounded-lg border border-dashed border-border bg-card text-[11px] font-ibm outline-none focus:border-primary/40" />
+                <button onClick={createFolder} disabled={folderBusy || !newFolderName.trim()}
+                  className="px-2 py-1 rounded-lg red-accent text-white text-[11px] font-montserrat font-bold disabled:opacity-50">
+                  ОК
+                </button>
+                <button onClick={() => setAddingFolder(false)}
+                  className="px-1 text-[11px] font-ibm text-muted-foreground">Отмена</button>
+              </span>
+            ) : (
+              <button onClick={() => { setAddingFolder(true); setNewFolderName(""); }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-montserrat font-bold border border-dashed border-border text-muted-foreground hover:bg-muted transition-colors">
+                <Icon name="FolderPlus" size={11} />
+                Каталог
+              </button>
+            )
+          )}
         </div>
       )}
 
@@ -534,6 +672,33 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
               <button onClick={doAssign} disabled={assigning}
                 className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60">
                 {assigning ? <><Icon name="Loader" size={14} className="animate-spin" />Выдаю...</> : "Выдать"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Удаление каталога */}
+      {delFolder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => !folderBusy && setDelFolder(null)} />
+          <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 animate-scale-in">
+            <h2 className="font-montserrat font-bold text-base text-foreground mb-1">Удалить каталог?</h2>
+            <p className="text-sm text-muted-foreground font-ibm mb-4">
+              «{delFolder.name}» — файлы из него останутся в библиотеке, просто потеряют этот каталог.
+              {(() => {
+                const n = items.filter(i => i.subject_id === delFolder.id).length;
+                return n ? ` Сейчас в нём ${n} шт.` : "";
+              })()}
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setDelFolder(null)} disabled={folderBusy}
+                className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60">
+                Отмена
+              </button>
+              <button onClick={removeFolder} disabled={folderBusy}
+                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-bold hover:bg-red-700 transition-colors disabled:opacity-70">
+                {folderBusy ? <><Icon name="Loader" size={14} className="animate-spin" />Удаляю...</> : "Удалить"}
               </button>
             </div>
           </div>
