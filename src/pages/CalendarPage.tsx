@@ -86,6 +86,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const [showHours, setShowHours] = useState(false);
   const [hoursForm, setHoursForm] = useState<Hours>(hours);
   const [hoursError, setHoursError] = useState("");
+  const [mobileDay, setMobileDay] = useState(0);
 
   useEffect(() => {
     apiGetCalendar()
@@ -106,6 +107,12 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
 
   const weekEnd = weekDays[6];
   const isCurrentWeek = toKey(weekStart) === toKey(weekAnchor);
+
+  useEffect(() => {
+    const idx = weekDays.findIndex(d => toKey(d) === todayKey);
+    setMobileDay(idx >= 0 ? idx : 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weekStart]);
 
   const visibleLessons = filterStudent
     ? lessons.filter(l => (l.students || []).some(s => s.id === filterStudent))
@@ -394,15 +401,15 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
 
   return (
     <div className="max-w-6xl mx-auto space-y-5">
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 sm:gap-5">
 
         {/* Week schedule */}
         <div className="lg:col-span-3 bg-card rounded-xl border border-border overflow-hidden">
           <div className="flex items-center justify-between gap-2 px-3 md:px-5 py-3 border-b border-border flex-wrap">
-            <button onClick={() => shiftWeek(-1)}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs md:text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+            <button onClick={() => shiftWeek(-1)} title="Предыдущая неделя"
+              className="flex items-center gap-1 px-2.5 md:px-3 py-1.5 rounded-lg border border-border text-xs md:text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
               <Icon name="ChevronLeft" size={15} />
-              предыдущая
+              <span className="hidden sm:inline">предыдущая</span>
             </button>
 
             <div className="flex items-center gap-2">
@@ -417,24 +424,24 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
               )}
             </div>
 
-            <button onClick={() => shiftWeek(1)}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-xs md:text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
-              следующая
+            <button onClick={() => shiftWeek(1)} title="Следующая неделя"
+              className="flex items-center gap-1 px-2.5 md:px-3 py-1.5 rounded-lg border border-border text-xs md:text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+              <span className="hidden sm:inline">следующая</span>
               <Icon name="ChevronRight" size={15} />
             </button>
           </div>
 
           {isTeacher && students.length > 0 && (
-            <div className="px-4 py-2 border-b border-border flex items-center gap-2 flex-wrap">
-              <Icon name="Filter" size={13} className="text-muted-foreground" />
+            <div className="px-3 sm:px-4 py-2 border-b border-border flex items-center gap-2 overflow-x-auto sm:flex-wrap">
+              <Icon name="Filter" size={13} className="text-muted-foreground flex-shrink-0" />
               <button onClick={() => setFilterStudent(null)}
-                className={`text-xs px-2.5 py-1 rounded-full font-montserrat font-medium transition-colors
+                className={`flex-shrink-0 text-xs px-2.5 py-1 rounded-full font-montserrat font-medium transition-colors
                   ${filterStudent === null ? "bg-primary text-white" : "border border-border text-muted-foreground hover:bg-muted"}`}>
                 Все ученики
               </button>
               {students.map(s => (
                 <button key={s.id} onClick={() => setFilterStudent(filterStudent === s.id ? null : s.id)}
-                  className={`flex items-center gap-1.5 text-xs pl-1 pr-2.5 py-1 rounded-full font-montserrat font-medium transition-colors
+                  className={`flex-shrink-0 flex items-center gap-1.5 text-xs pl-1 pr-2.5 py-1 rounded-full font-montserrat font-medium transition-colors whitespace-nowrap
                     ${filterStudent === s.id ? "bg-primary text-white" : "border border-border text-muted-foreground hover:bg-muted"}`}>
                   <span className="w-5 h-5 rounded-full red-accent flex items-center justify-center">
                     <span className="text-white font-bold text-[9px]">{s.avatar}</span>
@@ -462,7 +469,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
               ) : moveStatus === "error" ? (
                 <span className="flex items-center gap-1.5 text-red-600"><Icon name="TriangleAlert" size={13} />Не удалось перенести</span>
               ) : (
-                <span className="flex items-center gap-1.5 text-muted-foreground"><Icon name="Move" size={13} />Клик по занятию — изменить или удалить, перетаскивание — перенос</span>
+                <span className="hidden sm:flex items-center gap-1.5 text-muted-foreground"><Icon name="Move" size={13} />Клик по занятию — изменить или удалить, перетаскивание — перенос</span>
               )}
               <button onClick={() => { setHoursForm(hours); setHoursError(""); setShowHours(true); }}
                 className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors font-montserrat font-medium flex-shrink-0">
@@ -472,9 +479,25 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
             </div>
           )}
 
+          <div className="sm:hidden flex gap-1 px-2 py-2 border-b border-border overflow-x-auto">
+            {weekDays.map((d, i) => {
+              const isToday = toKey(d) === todayKey;
+              const dayCount = visibleLessons.filter(l => l.lesson_date === toKey(d)).length;
+              return (
+                <button key={i} onClick={() => setMobileDay(i)}
+                  className={`flex-shrink-0 flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-lg transition-colors
+                    ${mobileDay === i ? "red-accent text-white" : isToday ? "bg-accent/20 text-primary" : "text-muted-foreground hover:bg-muted"}`}>
+                  <span className="text-[10px] font-montserrat font-bold uppercase">{DAYS[(d.getDay() + 6) % 7]}</span>
+                  <span className="text-sm font-montserrat font-bold">{d.getDate()}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full ${dayCount ? (mobileDay === i ? "bg-white" : "bg-orange-400") : "bg-transparent"}`} />
+                </button>
+              );
+            })}
+          </div>
+
           <div className="overflow-x-auto">
-            <div className="min-w-[560px]">
-              <div className="grid grid-cols-7 border-b border-border bg-muted/40">
+            <div className="sm:min-w-[560px]">
+              <div className="hidden sm:grid grid-cols-7 border-b border-border bg-muted/40">
                 {weekDays.map((d, i) => {
                   const isToday = toKey(d) === todayKey;
                   const isWeekend = d.getDay() === 0 || d.getDay() === 6;
@@ -488,13 +511,14 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                 })}
               </div>
 
-              <div className="grid grid-cols-7">
+              <div className="grid grid-cols-1 sm:grid-cols-7">
                 {weekDays.map((d, di) => {
                   const dateKey = toKey(d);
                   const isPast = dateKey < todayKey;
                   const hasFree = TIME_SLOTS.some(t => !findLesson(dateKey, t) && !isPastSlot(dateKey, t));
                   return (
-                    <div key={di} className="border-r border-border last:border-r-0 p-1.5 space-y-1.5">
+                    <div key={di} className={`border-r border-border last:border-r-0 p-1.5 space-y-1.5
+                      ${mobileDay === di ? "block" : "hidden"} sm:block`}>
                       {TIME_SLOTS.map((time, ti) => {
                         const lesson = findLesson(dateKey, time);
                         const isSelected = selected?.date === dateKey && selected?.time === time;
@@ -534,7 +558,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                   handleSlotClick(dateKey, time);
                                 }
                               }}
-                              className={`w-full h-12 rounded-md text-xs font-montserrat font-bold transition-all duration-150 flex flex-col items-center justify-center gap-0.5 px-1
+                              className={`w-full h-11 sm:h-12 rounded-md text-xs font-montserrat font-bold transition-all duration-150 flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2 sm:gap-0.5 px-3 sm:px-1
                                 ${lesson
                                   ? (isPast || (dateKey === todayKey && time < nowTime)
                                       ? "bg-gray-200 text-gray-500 hover:bg-gray-300 cursor-grab active:cursor-grabbing"
@@ -545,12 +569,14 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                 ${isSelected ? "ring-2 ring-offset-1 ring-primary" : ""}
                                 ${dragId === lesson?.id ? "opacity-40" : ""}`}
                             >
-                              <span>{time}</span>
-                              {lesson && <span className="text-[10px] font-normal font-ibm truncate w-full">{lesson.topic}</span>}
+                              <span className="flex-shrink-0">{time}</span>
+                              {lesson
+                                ? <span className="text-[11px] sm:text-[10px] font-normal font-ibm truncate flex-1 text-left sm:text-center sm:w-full">{lesson.topic}</span>
+                                : <span className="sm:hidden text-[11px] font-normal font-ibm opacity-80">{slotGone ? "прошло" : "свободно"}</span>}
                             </button>
 
                             {isTeacher && lesson && (
-                              <div className="md:hidden absolute -right-0.5 top-0 flex flex-col gap-0.5">
+                              <div className="md:hidden absolute right-1 top-0 bottom-0 flex flex-col justify-center gap-0.5">
                                 <button onClick={e => { e.stopPropagation(); shiftLessonSlot(lesson, -1); }}
                                   disabled={ti === 0}
                                   className="w-5 h-[22px] rounded bg-white/80 border border-orange-400 text-orange-700 flex items-center justify-center disabled:opacity-30">
