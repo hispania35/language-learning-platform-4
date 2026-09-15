@@ -102,6 +102,8 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
   const atBottomRef = useRef(true);
   const lastIdRef = useRef<number | null>(null);
   const targetKeyRef = useRef("");
+  const targetRef = useRef<Target | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [showJump, setShowJump] = useState(false);
   const [newCount, setNewCount] = useState(0);
 
@@ -118,31 +120,52 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
     return () => clearInterval(t);
   }, [loadContacts]);
 
+  const groupsRef = useRef<ChatGroup[]>([]);
+  useEffect(() => { groupsRef.current = groups; }, [groups]);
+
+  useEffect(() => {
+    const prev = targetRef.current;
+    targetRef.current = target;
+    const changed = !prev || !target || prev.kind !== target.kind || prev.id !== target.id;
+    if (changed) { setMessages([]); setLoadedKey(null); }
+  }, [target]);
+
   const loadMessages = useCallback(() => {
-    if (!target) return;
-    if (target.kind === "group") {
-      const ids = groups.find(g => g.id === target.id)?.students.map(s => s.id) || [];
-      if (!ids.length) { setMessages([]); return; }
+    const t = targetRef.current;
+    if (!t) return;
+
+    if (t.kind === "group") {
+      const ids = groupsRef.current.find(g => g.id === t.id)?.students.map(s => s.id) || [];
+      if (!ids.length) return;
       apiGetMessages(ids[0]).then(res => {
-        setMessages((res.messages || []).filter(m => m.group_id === target.id));
+        if (targetRef.current?.kind !== "group" || targetRef.current.id !== t.id) return;
+        if (!Array.isArray(res.messages)) return;
+        setMessages(res.messages.filter(m => m.group_id === t.id));
+        setLoadedKey(`${t.kind}_${t.id}`);
       }).catch(() => {});
       return;
     }
-    apiGetMessages(target.id).then(res => {
-      setMessages(res.messages || []);
+
+    apiGetMessages(t.id).then(res => {
+      if (targetRef.current?.kind !== "user" || targetRef.current.id !== t.id) return;
+      if (!Array.isArray(res.messages)) return;
+      setMessages(res.messages);
+      setLoadedKey(`${t.kind}_${t.id}`);
       setPeerTyping(!!res.typing);
       refresh();
-      loadContacts();
     }).catch(() => {});
-  }, [target, groups, refresh, loadContacts]);
-
-  useEffect(() => { loadMessages(); }, [loadMessages]);
+  }, [refresh]);
 
   useEffect(() => {
     if (!target) return;
+    loadMessages();
     const t = setInterval(loadMessages, 3500);
     return () => clearInterval(t);
   }, [target, loadMessages]);
+
+  useEffect(() => {
+    if (target?.kind === "group" && groups.length) loadMessages();
+  }, [groups, target, loadMessages]);
 
   const scrollToBottom = useCallback((smooth = true) => {
     const el = scrollRef.current;
@@ -498,9 +521,13 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
               <div ref={scrollRef} onScroll={onScroll}
                 className="h-full overflow-y-auto overscroll-contain chat-scroll p-4 space-y-3 bg-muted/20">
                 {!shown.length && (
-                  <p className="text-center text-sm text-muted-foreground font-ibm py-8">
-                    {msgSearch ? "Ничего не найдено" : target.kind === "group" ? "Напишите первое сообщение группе" : "Сообщений пока нет"}
-                  </p>
+                  loadedKey === `${target.kind}_${target.id}` ? (
+                    <p className="text-center text-sm text-muted-foreground font-ibm py-8">
+                      {msgSearch ? "Ничего не найдено" : target.kind === "group" ? "Напишите первое сообщение группе" : "Сообщений пока нет"}
+                    </p>
+                  ) : (
+                    <p className="text-center text-sm text-muted-foreground font-ibm py-8">Загрузка...</p>
+                  )
                 )}
                 {shown.map(m => {
                   const mine = m.from_user_id === Number(user.id);
