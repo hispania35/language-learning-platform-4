@@ -420,7 +420,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
         </div>
 
         {/* Переписка */}
-        <div className={`flex-1 flex flex-col min-w-0 ${listOpen ? (panel ? "hidden" : "hidden md:flex") : "flex"}`}>
+        <div className={`flex-1 min-h-0 h-full overflow-hidden flex flex-col min-w-0 ${listOpen ? (panel ? "hidden" : "hidden md:flex") : "flex"}`}>
           {!target ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
               <Icon name="MessageSquare" size={40} className="text-muted-foreground/40 mb-3" />
@@ -496,7 +496,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
 
               <div className="relative flex-1 min-h-0">
               <div ref={scrollRef} onScroll={onScroll}
-                className="h-full overflow-y-auto p-4 space-y-3 bg-muted/20">
+                className="h-full overflow-y-auto overscroll-contain chat-scroll p-4 space-y-3 bg-muted/20">
                 {!shown.length && (
                   <p className="text-center text-sm text-muted-foreground font-ibm py-8">
                     {msgSearch ? "Ничего не найдено" : target.kind === "group" ? "Напишите первое сообщение группе" : "Сообщений пока нет"}
