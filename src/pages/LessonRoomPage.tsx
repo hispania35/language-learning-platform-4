@@ -91,7 +91,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
   if (room) {
     const url = buildRoomUrl(room, user.name);
     return (
-      <div className="max-w-6xl mx-auto flex flex-col gap-2 h-full min-h-[420px]" ref={frameRef}>
+      <div className="max-w-6xl mx-auto flex flex-col gap-2 h-full lg:min-h-[420px]" ref={frameRef}>
         <div className="flex-shrink-0 flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2 min-w-0">
             <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
@@ -153,7 +153,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
           </div>
 
           {chatOpen && (
-            <div className="lg:w-80 lg:flex-shrink-0 h-64 lg:h-auto bg-card rounded-xl border border-border overflow-hidden flex flex-col animate-fade-in">
+            <div className="lg:w-80 lg:flex-shrink-0 h-72 lg:h-auto lg:min-h-0 bg-card rounded-xl border border-border overflow-hidden flex flex-col animate-fade-in">
               <div className="px-3 py-2 border-b border-border flex items-center gap-2 flex-shrink-0">
                 <Icon name="MessageSquare" size={14} className="text-primary" />
                 <p className="text-sm font-montserrat font-bold text-foreground flex-1">Чат урока</p>
@@ -161,7 +161,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
                   <Icon name="X" size={15} />
                 </button>
               </div>
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-hidden">
                 <ChatPage user={user} preselect={chatPeers} panel />
               </div>
             </div>

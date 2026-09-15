@@ -370,10 +370,10 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
         : "md:flex-row rounded-xl border border-border h-full md:min-h-[380px]"}`}>
 
         {/* Список собеседников */}
-        <div className={`border-b border-border flex-col
+        <div className={`border-b border-border flex-col min-h-0 h-full overflow-hidden
           ${panel ? "" : "md:w-72 md:flex-shrink-0 md:border-b-0 md:border-r"}
           ${listOpen ? "flex" : "hidden"} ${panel ? "" : "md:flex"}`}>
-          <div className="p-3 border-b border-border">
+          <div className="p-3 border-b border-border flex-shrink-0">
             <div className="relative">
               <Icon name="Search" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Поиск"
@@ -381,7 +381,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain chat-scroll">
             {isTeacher && filteredGroups.length > 0 && (
               <div className="px-3 pt-3 pb-1">
                 <p className="text-[10px] font-montserrat font-bold text-muted-foreground uppercase tracking-wide">Группы</p>
