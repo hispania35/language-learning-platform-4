@@ -56,7 +56,6 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ topic: "", lesson_date: "", lesson_time: "18:00", duration_min: 60, lesson_type: "Грамматика" });
   const [saving, setSaving] = useState(false);
-  const [dragId, setDragId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [moveStatus, setMoveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [confirmDelete, setConfirmDelete] = useState<Lesson | null>(null);
@@ -90,6 +89,9 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const [pickedId, setPickedId] = useState<number | null>(null);
   const holdTimer = useRef<number | null>(null);
   const holdFired = useRef(false);
+  const [mouseDrag, setMouseDrag] = useState<{ lesson: Lesson; x: number; y: number } | null>(null);
+  const dragOrigin = useRef<{ x: number; y: number; lesson: Lesson } | null>(null);
+  const dragMoved = useRef(false);
 
   useEffect(() => {
     apiGetCalendar()
@@ -212,6 +214,60 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
       setTimeout(() => setMoveStatus("idle"), 2500);
     }
   };
+
+  useEffect(() => {
+    if (!mouseDrag) return;
+    document.body.style.cursor = "grabbing";
+    document.body.style.userSelect = "none";
+
+    const onMove = (e: MouseEvent) => {
+      setMouseDrag(prev => prev && { ...prev, x: e.clientX, y: e.clientY });
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const cell = el?.closest("[data-slot]") as HTMLElement | null;
+      const key = cell?.dataset.slot;
+      setDropTarget(key && cell?.dataset.free === "1" ? key : null);
+    };
+
+    const onUp = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const cell = el?.closest("[data-slot]") as HTMLElement | null;
+      if (cell?.dataset.free === "1" && cell.dataset.slot) {
+        const [d, t] = cell.dataset.slot.split("_");
+        moveLesson(mouseDrag.lesson.id, d, t);
+      }
+      setMouseDrag(null);
+      setDropTarget(null);
+      dragOrigin.current = null;
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mouseDrag?.lesson.id]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const o = dragOrigin.current;
+      if (!o || mouseDrag) return;
+      if (Math.abs(e.clientX - o.x) + Math.abs(e.clientY - o.y) > 5) {
+        dragMoved.current = true;
+        setMouseDrag({ lesson: o.lesson, x: e.clientX, y: e.clientY });
+      }
+    };
+    const onUp = () => { dragOrigin.current = null; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [mouseDrag]);
 
   const slotPeople = (lesson: Lesson) => {
     const list = lesson.students || [];
@@ -579,28 +635,27 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                         return (
                           <div
                             key={time}
-                            onDragOver={e => { if (isTeacher && dragId !== null && !lesson && !slotGone) { e.preventDefault(); setDropTarget(cellKey); } }}
-                            onDragLeave={() => setDropTarget(prev => prev === cellKey ? null : prev)}
-                            onDrop={e => {
-                              e.preventDefault();
-                              setDropTarget(null);
-                              if (dragId !== null && !lesson) moveLesson(dragId, dateKey, time);
-                              setDragId(null);
-                            }}
-                            className={`relative rounded-md ${isDropOver ? "ring-2 ring-primary ring-offset-1" : ""}`}
+                            data-slot={cellKey}
+                            data-free={!lesson && !slotGone ? "1" : "0"}
+                            className={`relative rounded-md transition-all
+                              ${isDropOver ? "ring-2 ring-primary ring-offset-1 scale-[1.03]" : ""}
+                              ${mouseDrag && !lesson && !slotGone && !isDropOver ? "ring-1 ring-green-400" : ""}`}
                           >
                             <button
                               title={lesson
                                 ? `${lesson.topic} · ${time}${isTeacher ? " — нажмите, чтобы начать урок или изменить" : ""}`
                                 : slotGone ? "Время уже прошло" : "Свободное время"}
-                              draggable={isTeacher && !!lesson}
-                              onDragStart={() => lesson && setDragId(lesson.id)}
-                              onDragEnd={() => { setDragId(null); setDropTarget(null); }}
+                              onMouseDown={e => {
+                                if (!isTeacher || !lesson || e.button !== 0) return;
+                                dragMoved.current = false;
+                                dragOrigin.current = { x: e.clientX, y: e.clientY, lesson };
+                              }}
                               onTouchStart={() => { if (isTeacher && lesson && !slotGone) startHold(lesson); }}
                               onTouchEnd={cancelHold}
                               onTouchMove={cancelHold}
                               onContextMenu={e => { if (isTeacher && lesson) e.preventDefault(); }}
                               onClick={() => {
+                                if (dragMoved.current) { dragMoved.current = false; return; }
                                 if (holdFired.current) { holdFired.current = false; return; }
                                 if (pickedId !== null) {
                                   if (lesson?.id === pickedId) { setPickedId(null); return; }
@@ -627,7 +682,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                       : "bg-green-500 text-white hover:bg-green-600"}
                                 ${isSelected ? "ring-2 ring-offset-1 ring-primary" : ""}
                                 ${pickedId === lesson?.id ? "ring-2 ring-offset-1 ring-primary scale-95 shadow-lg" : ""}
-                                ${dragId === lesson?.id ? "opacity-40" : ""}`}
+                                ${mouseDrag?.lesson.id === lesson?.id ? "opacity-40" : ""}`}
                             >
                               <span className="flex-shrink-0">{time}</span>
                               {lesson ? (
@@ -1379,6 +1434,18 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {mouseDrag && (
+        <div
+          className="fixed z-[100] pointer-events-none px-3 py-1.5 rounded-lg bg-orange-300 text-orange-900 shadow-2xl ring-2 ring-orange-500 flex flex-col items-start leading-tight rotate-3"
+          style={{ left: mouseDrag.x + 12, top: mouseDrag.y + 12 }}
+        >
+          <span className="text-xs font-montserrat font-bold">
+            {mouseDrag.lesson.lesson_time.slice(0, 5)} · {mouseDrag.lesson.topic}
+          </span>
+          <span className="text-[10px] font-ibm opacity-80">{slotPeople(mouseDrag.lesson)}</span>
         </div>
       )}
     </div>
