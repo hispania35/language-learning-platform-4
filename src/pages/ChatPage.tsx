@@ -344,7 +344,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
     <div className={panel ? "h-full" : "max-w-6xl mx-auto h-full"}>
       <div className={`bg-card overflow-hidden flex flex-col ${panel
         ? "h-full"
-        : "md:flex-row rounded-xl border border-border h-full min-h-[380px]"}`}>
+        : "md:flex-row rounded-xl border border-border h-full md:min-h-[380px]"}`}>
 
         {/* Список собеседников */}
         <div className={`border-b border-border flex-col

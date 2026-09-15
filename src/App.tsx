@@ -27,6 +27,26 @@ export default function App() {
   const [lessonRoom, setLessonRoom] = useState<string | null>(null);
   const [chatPreselect, setChatPreselect] = useState<number[] | null>(null);
 
+  // Реальная высота видимой области (мобильные браузеры прячут/показывают панели)
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const apply = () => {
+      const h = vv?.height || window.innerHeight;
+      document.documentElement.style.setProperty("--app-h", `${Math.round(h)}px`);
+    };
+    apply();
+    vv?.addEventListener("resize", apply);
+    vv?.addEventListener("scroll", apply);
+    window.addEventListener("resize", apply);
+    window.addEventListener("orientationchange", apply);
+    return () => {
+      vv?.removeEventListener("resize", apply);
+      vv?.removeEventListener("scroll", apply);
+      window.removeEventListener("resize", apply);
+      window.removeEventListener("orientationchange", apply);
+    };
+  }, []);
+
   // Восстановить сессию: сразу из кеша, затем сверить с сервером
   useEffect(() => {
     const token = localStorage.getItem("hispania_token");
@@ -109,7 +129,8 @@ export default function App() {
     <ChatAlertsProvider enabled={!!user}>
       <Toaster />
       <ChatToasts onNavigate={setActivePage} />
-      <div className="flex h-[100dvh] bg-background overflow-hidden">
+      <div className="flex bg-background overflow-hidden"
+        style={{ height: "var(--app-h, 100dvh)" }}>
         <Sidebar
           activePage={activePage}
           onNavigate={(p) => { setActivePage(p); setSidebarOpen(false); }}
