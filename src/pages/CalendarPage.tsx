@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { apiGetCalendar, apiCreateLesson, apiMoveLesson, apiDeleteLesson, apiUpdateLesson, apiGetStudents, apiGetGroups, apiStartLesson, apiCancelLesson, type Lesson, type StudentInfo, type StudentGroup } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
@@ -87,6 +87,9 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const [hoursForm, setHoursForm] = useState<Hours>(hours);
   const [hoursError, setHoursError] = useState("");
   const [mobileDay, setMobileDay] = useState(0);
+  const [pickedId, setPickedId] = useState<number | null>(null);
+  const holdTimer = useRef<number | null>(null);
+  const holdFired = useRef(false);
 
   useEffect(() => {
     apiGetCalendar()
@@ -111,6 +114,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   useEffect(() => {
     const idx = weekDays.findIndex(d => toKey(d) === todayKey);
     setMobileDay(idx >= 0 ? idx : 0);
+    setPickedId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekStart]);
 
@@ -208,6 +212,23 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
       setTimeout(() => setMoveStatus("idle"), 2500);
     }
   };
+
+  const startHold = (lesson: Lesson) => {
+    holdFired.current = false;
+    if (holdTimer.current) window.clearTimeout(holdTimer.current);
+    holdTimer.current = window.setTimeout(() => {
+      holdFired.current = true;
+      setPickedId(lesson.id);
+      navigator.vibrate?.(30);
+    }, 450);
+  };
+
+  const cancelHold = () => {
+    if (holdTimer.current) window.clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+  };
+
+  useEffect(() => () => { if (holdTimer.current) window.clearTimeout(holdTimer.current); }, []);
 
   const shiftLessonSlot = (lesson: Lesson, delta: number) => {
     const idx = TIME_SLOTS.indexOf(lesson.lesson_time.slice(0, 5));
@@ -469,12 +490,28 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
               ) : moveStatus === "error" ? (
                 <span className="flex items-center gap-1.5 text-red-600"><Icon name="TriangleAlert" size={13} />Не удалось перенести</span>
               ) : (
-                <span className="hidden sm:flex items-center gap-1.5 text-muted-foreground"><Icon name="Move" size={13} />Клик по занятию — изменить или удалить, перетаскивание — перенос</span>
+                <>
+                  <span className="hidden sm:flex items-center gap-1.5 text-muted-foreground"><Icon name="Move" size={13} />Клик по занятию — изменить или удалить, перетаскивание — перенос</span>
+                  <span className="sm:hidden flex items-center gap-1.5 text-muted-foreground"><Icon name="Move" size={13} />Удержите занятие, чтобы перенести</span>
+                </>
               )}
               <button onClick={() => { setHoursForm(hours); setHoursError(""); setShowHours(true); }}
                 className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors font-montserrat font-medium flex-shrink-0">
                 <Icon name="Settings2" size={13} />
                 Рабочие часы
+              </button>
+            </div>
+          )}
+
+          {isTeacher && pickedId !== null && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 border-b border-primary/20 animate-fade-in">
+              <Icon name="Move" size={14} className="text-primary flex-shrink-0" />
+              <p className="text-xs text-foreground font-ibm flex-1">
+                Занятие «{lessons.find(l => l.id === pickedId)?.topic}» выбрано — нажмите на свободное время
+              </p>
+              <button onClick={() => setPickedId(null)}
+                className="text-xs font-montserrat font-bold text-primary hover:underline flex-shrink-0">
+                Отмена
               </button>
             </div>
           )}
@@ -486,7 +523,8 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
               return (
                 <button key={i} onClick={() => setMobileDay(i)}
                   className={`flex-shrink-0 flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-lg transition-colors
-                    ${mobileDay === i ? "red-accent text-white" : isToday ? "bg-accent/20 text-primary" : "text-muted-foreground hover:bg-muted"}`}>
+                    ${mobileDay === i ? "red-accent text-white" : isToday ? "bg-accent/20 text-primary" : "text-muted-foreground hover:bg-muted"}
+                    ${pickedId !== null && mobileDay !== i && toKey(d) >= todayKey ? "ring-1 ring-green-500" : ""}`}>
                   <span className="text-[10px] font-montserrat font-bold uppercase">{DAYS[(d.getDay() + 6) % 7]}</span>
                   <span className="text-sm font-montserrat font-bold">{d.getDate()}</span>
                   <span className={`w-1.5 h-1.5 rounded-full ${dayCount ? (mobileDay === i ? "bg-white" : "bg-orange-400") : "bg-transparent"}`} />
@@ -527,7 +565,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                         const slotGone = isPastSlot(dateKey, time);
 
                         if (isPast && !lesson) {
-                          return <div key={time} className="h-12 rounded-md bg-muted/30" />;
+                          return <div key={time} className="hidden sm:block h-12 rounded-md bg-muted/30" />;
                         }
 
                         return (
@@ -550,7 +588,18 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                               draggable={isTeacher && !!lesson}
                               onDragStart={() => lesson && setDragId(lesson.id)}
                               onDragEnd={() => { setDragId(null); setDropTarget(null); }}
+                              onTouchStart={() => { if (isTeacher && lesson && !slotGone) startHold(lesson); }}
+                              onTouchEnd={cancelHold}
+                              onTouchMove={cancelHold}
+                              onContextMenu={e => { if (isTeacher && lesson) e.preventDefault(); }}
                               onClick={() => {
+                                if (holdFired.current) { holdFired.current = false; return; }
+                                if (pickedId !== null) {
+                                  if (lesson?.id === pickedId) { setPickedId(null); return; }
+                                  if (!lesson && !slotGone) { moveLesson(pickedId, dateKey, time); setPickedId(null); return; }
+                                  setPickedId(null);
+                                  return;
+                                }
                                 if (isTeacher && lesson) {
                                   setSelected({ date: dateKey, time });
                                   setActionLesson(lesson);
@@ -558,15 +607,18 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                   handleSlotClick(dateKey, time);
                                 }
                               }}
-                              className={`w-full h-11 sm:h-12 rounded-md text-xs font-montserrat font-bold transition-all duration-150 flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2 sm:gap-0.5 px-3 sm:px-1
+                              className={`w-full h-11 sm:h-12 rounded-md text-xs font-montserrat font-bold transition-all duration-150 flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2 sm:gap-0.5 px-3 sm:px-1 select-none
                                 ${lesson
                                   ? (isPast || (dateKey === todayKey && time < nowTime)
                                       ? "bg-gray-200 text-gray-500 hover:bg-gray-300 cursor-grab active:cursor-grabbing"
                                       : "bg-orange-300 text-orange-900 hover:bg-orange-400 cursor-grab active:cursor-grabbing")
                                   : slotGone
                                     ? "bg-muted text-muted-foreground/60 cursor-not-allowed"
-                                    : "bg-green-500 text-white hover:bg-green-600"}
+                                    : pickedId !== null
+                                      ? "bg-green-500 text-white ring-2 ring-green-600 ring-offset-1 animate-pulse"
+                                      : "bg-green-500 text-white hover:bg-green-600"}
                                 ${isSelected ? "ring-2 ring-offset-1 ring-primary" : ""}
+                                ${pickedId === lesson?.id ? "ring-2 ring-offset-1 ring-primary scale-95 shadow-lg" : ""}
                                 ${dragId === lesson?.id ? "opacity-40" : ""}`}
                             >
                               <span className="flex-shrink-0">{time}</span>
@@ -605,6 +657,12 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                           <Icon name="Plus" size={14} />
                           позже
                         </button>
+                      )}
+
+                      {isPast && !TIME_SLOTS.some(t => findLesson(dateKey, t)) && (
+                        <p className="sm:hidden py-6 text-center text-xs text-muted-foreground font-ibm">
+                          День прошёл, занятий не было
+                        </p>
                       )}
                     </div>
                   );
