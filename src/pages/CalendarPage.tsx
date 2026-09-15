@@ -213,6 +213,14 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
     }
   };
 
+  const slotPeople = (lesson: Lesson) => {
+    const list = lesson.students || [];
+    if (!list.length) return isTeacher ? "ученик не назначен" : lesson.lesson_type;
+    if (list.length === 1) return list[0].name;
+    if (list.length === 2) return list.map(s => s.name.split(" ")[0]).join(", ");
+    return `${list[0].name.split(" ")[0]} и ещё ${list.length - 1}`;
+  };
+
   const startHold = (lesson: Lesson) => {
     holdFired.current = false;
     if (holdTimer.current) window.clearTimeout(holdTimer.current);
@@ -607,7 +615,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                   handleSlotClick(dateKey, time);
                                 }
                               }}
-                              className={`w-full h-11 sm:h-12 rounded-md text-xs font-montserrat font-bold transition-all duration-150 flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2 sm:gap-0.5 px-3 sm:px-1 select-none
+                              className={`w-full ${lesson ? "h-14" : "h-11"} sm:h-12 rounded-md text-xs font-montserrat font-bold transition-all duration-150 flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2 sm:gap-0.5 px-3 sm:px-1 select-none
                                 ${lesson
                                   ? (isPast || (dateKey === todayKey && time < nowTime)
                                       ? "bg-gray-200 text-gray-500 hover:bg-gray-300 cursor-grab active:cursor-grabbing"
@@ -622,9 +630,19 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                 ${dragId === lesson?.id ? "opacity-40" : ""}`}
                             >
                               <span className="flex-shrink-0">{time}</span>
-                              {lesson
-                                ? <span className="text-[11px] sm:text-[10px] font-normal font-ibm truncate flex-1 text-left sm:text-center sm:w-full">{lesson.topic}</span>
-                                : <span className="sm:hidden text-[11px] font-normal font-ibm opacity-80">{slotGone ? "прошло" : "свободно"}</span>}
+                              {lesson ? (
+                                <>
+                                  <span className="hidden sm:block text-[10px] font-normal font-ibm truncate w-full text-center">{lesson.topic}</span>
+                                  <span className={`sm:hidden flex flex-col items-start min-w-0 flex-1 leading-tight ${isTeacher ? "pr-6" : ""}`}>
+                                    <span className="text-[11px] font-normal font-ibm truncate w-full text-left">{lesson.topic}</span>
+                                    <span className="text-[10px] font-normal font-ibm truncate w-full text-left opacity-75">
+                                      {slotPeople(lesson)}
+                                    </span>
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="sm:hidden text-[11px] font-normal font-ibm opacity-80">{slotGone ? "прошло" : "свободно"}</span>
+                              )}
                             </button>
 
                             {isTeacher && lesson && (
