@@ -341,10 +341,10 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
   const filteredGroups = groups.filter(g => g.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className={panel ? "h-full" : "max-w-6xl mx-auto"}>
+    <div className={panel ? "h-full" : "max-w-6xl mx-auto h-full"}>
       <div className={`bg-card overflow-hidden flex flex-col ${panel
         ? "h-full"
-        : "md:flex-row rounded-xl border border-border h-[calc(100dvh-8rem)] md:h-[calc(100dvh-9rem)] min-h-[380px]"}`}>
+        : "md:flex-row rounded-xl border border-border h-full min-h-[380px]"}`}>
 
         {/* Список собеседников */}
         <div className={`border-b border-border flex-col
@@ -430,7 +430,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
+              <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0">
                 <button onClick={() => setListOpen(true)} className={`${panel ? "" : "md:hidden"} text-muted-foreground`}>
                   <Icon name="ChevronLeft" size={20} />
                 </button>
@@ -474,7 +474,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
                 </div>
               )}
 
-              <div className="px-4 py-2 border-b border-border">
+              <div className="px-4 py-2 border-b border-border flex-shrink-0">
                 <div className="relative">
                   <Icon name="Search" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <input value={msgSearch} onChange={e => setMsgSearch(e.target.value)}
@@ -601,7 +601,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
               </div>
 
               {/* Ввод */}
-              <div className="border-t border-border p-3">
+              <div className="border-t border-border p-3 flex-shrink-0 bg-card">
                 {err && <p className="text-xs text-red-600 font-ibm mb-2">{err}</p>}
 
                 {pending && (

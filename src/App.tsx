@@ -128,8 +128,8 @@ export default function App() {
             settingsOpen={settingsOpen}
             onSettingsOpenChange={setSettingsOpen}
           />
-          <main className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 md:p-6">
-            <div className={`animate-fade-in ${activePage === "lesson" ? "h-full" : ""}`} key={activePage}>
+          <main className={`flex-1 min-h-0 p-3 sm:p-4 md:p-6 ${activePage === "chat" ? "overflow-hidden" : "overflow-y-auto"}`}>
+            <div className={`animate-fade-in ${activePage === "lesson" || activePage === "chat" ? "h-full" : ""}`} key={activePage}>
               {renderPage()}
             </div>
           </main>
