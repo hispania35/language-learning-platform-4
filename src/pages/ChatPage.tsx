@@ -85,6 +85,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
   const [listOpen, setListOpen] = useState(true);
 
   const [msgSearch, setMsgSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [peerTyping, setPeerTyping] = useState(false);
   const typingSentRef = useRef(0);
   const [editId, setEditId] = useState<number | null>(null);
@@ -127,7 +128,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
     const prev = targetRef.current;
     targetRef.current = target;
     const changed = !prev || !target || prev.kind !== target.kind || prev.id !== target.id;
-    if (changed) { setMessages([]); setLoadedKey(null); }
+    if (changed) { setMessages([]); setLoadedKey(null); setSearchOpen(false); setMsgSearch(""); }
   }, [target]);
 
   const loadMessages = useCallback(() => {
@@ -453,7 +454,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0">
+              <div className="flex items-center gap-3 px-4 py-2 md:py-3 border-b border-border flex-shrink-0">
                 <button onClick={() => setListOpen(true)} className={`${panel ? "" : "md:hidden"} text-muted-foreground`}>
                   <Icon name="ChevronLeft" size={20} />
                 </button>
@@ -467,7 +468,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
                     <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-card" />
                   )}
                 </span>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-montserrat font-bold text-foreground truncate">{target.name}</p>
                   {target.kind === "group" ? (
                     <p className="text-xs text-muted-foreground font-ibm">Рассылка · {target.count} учеников</p>
@@ -478,6 +479,13 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
                     </p>
                   )}
                 </div>
+                <button
+                  onClick={() => { setSearchOpen(v => { if (v) setMsgSearch(""); return !v; }); }}
+                  title="Поиск по сообщениям"
+                  className={`${panel ? "" : "md:hidden"} flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors
+                    ${searchOpen ? "red-accent text-white" : "text-muted-foreground hover:bg-muted"}`}>
+                  <Icon name={searchOpen ? "X" : "Search"} size={16} />
+                </button>
               </div>
 
               {pinned.length > 0 && !msgSearch && (
@@ -497,7 +505,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
                 </div>
               )}
 
-              <div className="px-4 py-2 border-b border-border flex-shrink-0">
+              <div className={`px-4 py-2 border-b border-border flex-shrink-0 ${searchOpen ? "block" : panel ? "hidden" : "hidden md:block"}`}>
                 <div className="relative">
                   <Icon name="Search" size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <input value={msgSearch} onChange={e => setMsgSearch(e.target.value)}
