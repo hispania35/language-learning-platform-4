@@ -673,16 +673,16 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                               className={`w-full ${lesson ? "h-14" : "h-11"} sm:h-12 rounded-md text-xs font-montserrat font-bold transition-all duration-150 flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2 sm:gap-0.5 px-3 sm:px-1 select-none
                                 ${lesson
                                   ? (isPast || (dateKey === todayKey && time < nowTime)
-                                      ? "bg-gray-200 text-gray-500 hover:bg-gray-300 cursor-grab active:cursor-grabbing"
-                                      : "bg-orange-300 text-orange-900 hover:bg-orange-400 cursor-grab active:cursor-grabbing")
+                                      ? "bg-gray-300 text-gray-700 hover:bg-gray-400 cursor-grab active:cursor-grabbing"
+                                      : "bg-orange-400 text-orange-950 shadow-sm hover:bg-orange-500 cursor-grab active:cursor-grabbing")
                                   : slotGone
                                     ? "bg-muted text-muted-foreground/60 cursor-not-allowed"
                                     : pickedId !== null
-                                      ? "bg-green-500 text-white ring-2 ring-green-600 ring-offset-1 animate-pulse"
-                                      : "bg-green-500 text-white hover:bg-green-600"}
+                                      ? "bg-green-600 text-white ring-2 ring-green-700 ring-offset-1 animate-pulse shadow-sm"
+                                      : "bg-green-600 text-white shadow-sm hover:bg-green-700 hover:shadow-md"}
                                 ${isSelected ? "ring-2 ring-offset-1 ring-primary" : ""}
                                 ${pickedId === lesson?.id ? "ring-2 ring-offset-1 ring-primary scale-95 shadow-lg" : ""}
-                                ${mouseDrag?.lesson.id === lesson?.id ? "opacity-40" : ""}`}
+                                ${lesson && mouseDrag?.lesson.id === lesson.id ? "opacity-40" : ""}`}
                             >
                               <span className="flex-shrink-0">{time}</span>
                               {lesson ? (
@@ -726,7 +726,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                             setExtraSlots(prev => prev.includes(t) ? prev : [...prev, t]);
                             handleSlotClick(dateKey, t);
                           }}
-                          className="w-full h-12 rounded-md border-2 border-dashed border-green-400 text-green-600 text-[11px] font-montserrat font-bold flex flex-col items-center justify-center gap-0.5 hover:bg-green-50 transition-colors">
+                          className="w-full h-12 rounded-md border-2 border-dashed border-green-600 text-green-700 text-[11px] font-montserrat font-bold flex flex-col items-center justify-center gap-0.5 hover:bg-green-100 hover:border-green-700 transition-colors">
                           <Icon name="Plus" size={14} />
                           позже
                         </button>
@@ -745,9 +745,9 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
           </div>
 
           <div className="px-4 py-3 flex items-center gap-4 text-xs text-muted-foreground font-ibm border-t border-border flex-wrap">
-            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-500" /><span>Свободно</span></div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-300" /><span>Занятие назначено</span></div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-200" /><span>Прошло</span></div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-600" /><span>Свободно</span></div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-400" /><span>Занятие назначено</span></div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-300" /><span>Прошло</span></div>
             <div className="flex items-center gap-1.5 w-full sm:w-auto text-muted-foreground/80">
               <Icon name="Info" size={13} className="flex-shrink-0" />
               <span>Прошедшее занятие можно открыть и посмотреть{isTeacher ? " или перенести" : ""}</span>
