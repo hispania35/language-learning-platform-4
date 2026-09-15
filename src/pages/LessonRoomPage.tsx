@@ -25,6 +25,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
   const [room, setRoom] = useState<string | null>(initialRoom || null);
   const [customRoom, setCustomRoom] = useState("");
   const [notice, setNotice] = useState("");
+  const [showHint, setShowHint] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const { setInLesson, unread } = useChatAlerts();
 
@@ -44,6 +45,13 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
   useEffect(() => {
     if (initialRoom) setRoom(initialRoom);
   }, [initialRoom]);
+
+  useEffect(() => {
+    if (!room) { setShowHint(false); return; }
+    setShowHint(true);
+    const t = setTimeout(() => setShowHint(false), 5000);
+    return () => clearTimeout(t);
+  }, [room]);
 
   const now = new Date();
   const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -104,17 +112,17 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
               onClick={() => {
                 navigator.clipboard?.writeText(`https://${JITSI_HOST}/${room}`);
               }}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
               <Icon name="Link" size={15} />
               <span className="hidden lg:inline">Скопировать ссылку</span>
             </button>
             <a href={url} target="_blank" rel="noreferrer" title="Открыть в новом окне"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
               <Icon name="ExternalLink" size={15} />
               <span className="hidden lg:inline">В новом окне</span>
             </a>
             <button onClick={() => setChatOpen(v => !v)} title="Чат урока"
-              className={`relative flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg border text-sm font-montserrat font-medium transition-colors
+              className={`relative flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border text-sm font-montserrat font-medium transition-colors
                 ${chatOpen ? "red-accent text-white border-transparent" : "border-border text-foreground hover:bg-muted"}`}>
               <Icon name="MessageSquare" size={15} />
               <span className="hidden sm:inline">Чат</span>
@@ -128,7 +136,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
               )}
             </button>
             <button onClick={() => { setRoom(null); onLeave?.(); }} title="Завершить урок"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-medium hover:bg-red-700 transition-colors">
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm font-montserrat font-medium hover:bg-red-700 transition-colors">
               <Icon name="PhoneOff" size={15} />
               <span className="hidden sm:inline">Завершить</span>
             </button>
@@ -168,9 +176,19 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
           )}
         </div>
 
-        <p className="flex-shrink-0 text-[11px] sm:text-xs text-muted-foreground font-ibm text-center">
-          Если видео не открылось, нажмите «В новом окне» и разрешите доступ к камере и микрофону.
-        </p>
+        {showHint && (
+          <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4 animate-fade-in">
+            <div className="pointer-events-auto flex items-start gap-2 max-w-md px-3 py-2 rounded-lg bg-foreground/90 text-background shadow-lg backdrop-blur-sm">
+              <Icon name="Info" size={14} className="flex-shrink-0 mt-0.5" />
+              <p className="text-[11px] sm:text-xs font-ibm leading-snug">
+                Видео не открылось? Нажмите «В новом окне» и разрешите доступ к камере и микрофону.
+              </p>
+              <button onClick={() => setShowHint(false)} className="flex-shrink-0 opacity-70 hover:opacity-100">
+                <Icon name="X" size={13} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
