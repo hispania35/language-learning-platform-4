@@ -272,6 +272,12 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const slotPeople = (lesson: Lesson) => {
     const list = lesson.students || [];
     if (!list.length) return isTeacher ? "ученик не назначен" : lesson.lesson_type;
+
+    const ids = new Set(list.map(s => s.id));
+    const group = groups.find(g =>
+      g.students.length === ids.size && g.students.every(s => ids.has(s.id)));
+    if (group) return group.name;
+
     if (list.length === 1) return list[0].name;
     if (list.length === 2) return list.map(s => s.name.split(" ")[0]).join(", ");
     return `${list[0].name.split(" ")[0]} и ещё ${list.length - 1}`;
@@ -643,7 +649,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                           >
                             <button
                               title={lesson
-                                ? `${lesson.topic} · ${time}${isTeacher ? " — нажмите, чтобы начать урок или изменить" : ""}`
+                                ? `${lesson.topic} · ${slotPeople(lesson)} · ${time}${isTeacher ? " — нажмите, чтобы начать урок или изменить" : ""}`
                                 : slotGone ? "Время уже прошло" : "Свободное время"}
                               onMouseDown={e => {
                                 if (!isTeacher || !lesson || e.button !== 0) return;
@@ -670,7 +676,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                   handleSlotClick(dateKey, time);
                                 }
                               }}
-                              className={`w-full ${lesson ? "h-14" : "h-11"} sm:h-12 rounded-md text-xs font-montserrat font-bold transition-all duration-150 flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2 sm:gap-0.5 px-3 sm:px-1 select-none
+                              className={`w-full ${lesson ? "h-14 sm:h-14" : "h-11 sm:h-12"} rounded-md text-xs font-montserrat font-bold transition-all duration-150 flex flex-row sm:flex-col items-center justify-start sm:justify-center gap-2 sm:gap-0.5 px-3 sm:px-1 select-none
                                 ${lesson
                                   ? (isPast || (dateKey === todayKey && time < nowTime)
                                       ? "bg-gray-300 text-gray-700 hover:bg-gray-400 cursor-grab active:cursor-grabbing"
@@ -687,7 +693,8 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                               <span className="flex-shrink-0">{time}</span>
                               {lesson ? (
                                 <>
-                                  <span className="hidden sm:block text-[10px] font-normal font-ibm truncate w-full text-center">{lesson.topic}</span>
+                                  <span className="hidden sm:block text-[10px] font-normal font-ibm truncate w-full text-center leading-tight">{lesson.topic}</span>
+                                  <span className="hidden sm:block text-[10px] font-normal font-ibm truncate w-full text-center leading-tight opacity-80">{slotPeople(lesson)}</span>
                                   <span className={`sm:hidden flex flex-col items-start min-w-0 flex-1 leading-tight ${isTeacher ? "pr-6" : ""}`}>
                                     <span className="text-[11px] font-normal font-ibm truncate w-full text-left">{lesson.topic}</span>
                                     <span className="text-[10px] font-normal font-ibm truncate w-full text-left opacity-75">
@@ -1005,7 +1012,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                           <Icon name="BookOpen" size={14} className="text-primary" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium text-foreground truncate font-ibm">{l.topic}</p>
+                          <p className="text-xs font-medium text-foreground truncate font-ibm">{l.topic} · {slotPeople(l)}</p>
                           <p className="text-xs text-muted-foreground">{l.lesson_date} · {l.lesson_time}</p>
                         </div>
                       </button>
@@ -1082,7 +1089,9 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
           <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 animate-scale-in">
             <div className="flex items-start justify-between mb-3">
               <div className="min-w-0">
-                <h2 className="font-montserrat font-bold text-base text-foreground truncate">{actionLesson.topic}</h2>
+                <h2 className="font-montserrat font-bold text-base text-foreground truncate">
+                  {actionLesson.topic} · {slotPeople(actionLesson)}
+                </h2>
                 <p className="text-sm text-muted-foreground font-ibm">
                   {new Date(actionLesson.lesson_date + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} в {actionLesson.lesson_time.slice(0, 5)}
                 </p>
