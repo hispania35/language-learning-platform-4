@@ -43,10 +43,21 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
   const showSettings = settingsOpen ?? localSettings;
   const [platform, setPlatformState] = useState<VideoPlatform>(getPlatform());
   const [platformLink, setPlatformLinkState] = useState(getPlatformLink(getPlatform()));
+  const [platformSaved, setPlatformSaved] = useState("");
 
   useEffect(() => {
     setPlatformLinkState(getPlatformLink(platform));
   }, [platform]);
+
+  useEffect(() => {
+    if (showSettings) {
+      setSettingsError("");
+      setSettingsSuccess("");
+      setOldPassword("");
+      setNewPassword("");
+      setPlatformSaved("");
+    }
+  }, [showSettings]);
   const setShowSettings = (v: boolean) => { onSettingsOpenChange ? onSettingsOpenChange(v) : setLocalSettings(v); };
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -343,7 +354,13 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
                 <button
                   key={p.id}
                   disabled={p.disabled}
-                  onClick={() => { if (!p.disabled) { setPlatformState(p.id); setPlatform(p.id); } }}
+                  onClick={() => {
+                    if (p.disabled) return;
+                    setPlatformState(p.id);
+                    setPlatform(p.id);
+                    setPlatformSaved(`Площадка сохранена: ${p.name}`);
+                    setTimeout(() => setPlatformSaved(""), 2500);
+                  }}
                   className={`flex items-start gap-2 px-2.5 py-2 rounded-lg border text-left transition-colors
                     ${p.disabled
                       ? "border-border bg-muted/40 opacity-50 cursor-not-allowed"
@@ -370,6 +387,8 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
               />
             )}
 
+            {platformSaved && <p className="text-xs text-green-600 font-ibm mb-2">{platformSaved}</p>}
+
             <div className="h-px bg-border mb-4" />
 
             <p className="text-xs font-montserrat font-bold text-foreground mb-3">Сменить пароль</p>
@@ -392,10 +411,16 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
               {settingsSuccess && <p className="text-xs text-green-600 font-ibm">{settingsSuccess}</p>}
               <button
                 onClick={handleChangePassword}
-                disabled={settingsLoading}
-                className="w-full py-2.5 red-accent text-white rounded-lg text-sm font-montserrat font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
+                disabled={settingsLoading || !oldPassword || !newPassword}
+                className="w-full py-2.5 red-accent text-white rounded-lg text-sm font-montserrat font-medium hover:opacity-90 transition-opacity disabled:opacity-40"
               >
-                {settingsLoading ? "Сохраняю..." : "Сохранить"}
+                {settingsLoading ? "Сохраняю..." : "Сменить пароль"}
+              </button>
+              <button
+                onClick={() => setShowSettings(false)}
+                className="w-full py-2.5 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors"
+              >
+                Готово
               </button>
             </div>
           </div>
