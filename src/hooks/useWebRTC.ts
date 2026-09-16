@@ -7,7 +7,17 @@ const ICE_SERVERS: RTCConfiguration = {
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun.cloudflare.com:3478" },
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
   ],
+  iceCandidatePoolSize: 4,
 };
 
 export type RtcStatus = "idle" | "connecting" | "waiting" | "connected" | "failed";
@@ -39,6 +49,9 @@ export function useWebRTC({ room, enabled }: Options) {
   const stopRef = useRef(false);
   const fxRef = useRef<FxHandle | null>(null);
   const rawTrackRef = useRef<MediaStreamTrack | null>(null);
+  const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
+  const hasRemoteRef = useRef(false);
+  const restartsRef = useRef(0);
 
   const send = useCallback((kind: string, payload: unknown) => {
     apiRtcSend(room, kind, payload).catch(() => {});
@@ -72,11 +85,31 @@ export function useWebRTC({ room, enabled }: Options) {
       }
     };
 
-    pc.onconnectionstatechange = () => {
+    pc.onconnectionstatechange = async () => {
       const st = pc.connectionState;
-      if (st === "connected") setStatus("connected");
-      else if (st === "failed") { setStatus("failed"); setError("Не удалось установить прямое соединение"); }
-      else if (st === "disconnected") setStatus("waiting");
+      if (st === "connected") {
+        restartsRef.current = 0;
+        setError("");
+        setStatus("connected");
+        return;
+      }
+      if (st === "failed") {
+        if (restartsRef.current < 3) {
+          restartsRef.current += 1;
+          setStatus("connecting");
+          setError("");
+          try {
+            pc.restartIce();
+            await pc.setLocalDescription();
+            send("sdp", pc.localDescription);
+          } catch { /* ok */ }
+        } else {
+          setStatus("failed");
+          setError("Связь не устанавливается. Проверьте интернет и попробуйте ещё раз");
+        }
+        return;
+      }
+      if (st === "disconnected") setStatus("connecting");
     };
 
     return pc;
@@ -94,15 +127,32 @@ export function useWebRTC({ room, enabled }: Options) {
       try {
         if (offerCollision) await pc.setLocalDescription({ type: "rollback" } as RTCLocalSessionDescriptionInit);
         await pc.setRemoteDescription(desc);
+        hasRemoteRef.current = true;
+        const queued = pendingIceRef.current;
+        pendingIceRef.current = [];
+        for (const c of queued) {
+          try { await pc.addIceCandidate(c); } catch { /* ok */ }
+        }
         if (desc.type === "offer") {
           await pc.setLocalDescription();
           send("sdp", pc.localDescription);
         }
       } catch { /* ok */ }
     } else if (kind === "ice") {
-      try { await pc.addIceCandidate(data as RTCIceCandidateInit); } catch { /* ok */ }
+      const cand = data as RTCIceCandidateInit;
+      if (!hasRemoteRef.current) {
+        pendingIceRef.current.push(cand);
+        return;
+      }
+      try { await pc.addIceCandidate(cand); } catch { /* ok */ }
     } else if (kind === "bye") {
       if (remoteRef.current) remoteRef.current.srcObject = null;
+      hasRemoteRef.current = false;
+      pendingIceRef.current = [];
+      pcRef.current?.close();
+      pcRef.current = null;
+      restartsRef.current = 0;
+      setError("");
       setStatus("waiting");
     }
   }, [createPeer, send]);
@@ -148,14 +198,28 @@ export function useWebRTC({ room, enabled }: Options) {
           setPeers(res.peers);
           const others = res.peers.filter(p => p.id !== meRef.current);
           politeRef.current = others.some(p => p.id < meRef.current);
-          if (others.length > 0 && !pcRef.current) createPeer();
+
+          if (others.length === 0) {
+            if (pcRef.current) {
+              pcRef.current.close();
+              pcRef.current = null;
+              hasRemoteRef.current = false;
+              pendingIceRef.current = [];
+              restartsRef.current = 0;
+              if (remoteRef.current) remoteRef.current.srcObject = null;
+              setError("");
+            }
+            setStatus("waiting");
+          } else if (!pcRef.current && !politeRef.current) {
+            createPeer();
+          }
         }
         if (res.last_id) sinceRef.current = res.last_id;
         for (const s of res.signals || []) {
           await handleSignal(s.kind, s.payload);
         }
       } catch { /* ok */ }
-      timer = setTimeout(loop, 1200);
+      timer = setTimeout(loop, 900);
     };
 
     start();
