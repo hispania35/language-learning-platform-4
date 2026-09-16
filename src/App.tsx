@@ -17,16 +17,24 @@ import TopBar from "./components/TopBar";
 import ChatToasts from "./components/ChatToasts";
 import { ChatAlertsProvider } from "./hooks/useChatAlerts";
 import { apiMe, apiLogout } from "./lib/api";
+import { setPlatform } from "./lib/videoPlatform";
 
 export type Page = "dashboard" | "calendar" | "lesson" | "materials" | "homework" | "exercises" | "students" | "chat" | "profile";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [activePage, setActivePage] = useState<Page>("dashboard");
+  const [activePage, setActivePage] = useState<Page>(
+    new URLSearchParams(window.location.search).get("room") ? "lesson" : "dashboard"
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [checking, setChecking] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [lessonRoom, setLessonRoom] = useState<string | null>(null);
+  const [lessonRoom, setLessonRoom] = useState<string | null>(() => {
+    const r = new URLSearchParams(window.location.search).get("room");
+    if (!r) return null;
+    setPlatform("webrtc");
+    return r.trim();
+  });
   const [chatPreselect, setChatPreselect] = useState<number[] | null>(null);
   const kbOpen = useKeyboardOpen();
 
@@ -48,6 +56,12 @@ export default function App() {
       window.removeEventListener("resize", apply);
       window.removeEventListener("orientationchange", apply);
     };
+  }, []);
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("room")) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   }, []);
 
   // Восстановить сессию: сразу из кеша, затем сверить с сервером
@@ -77,7 +91,7 @@ export default function App() {
   const handleLogin = (u: User) => {
     localStorage.setItem("hispania_user", JSON.stringify(u));
     setUser(u);
-    setActivePage("dashboard");
+    setActivePage(lessonRoom ? "lesson" : "dashboard");
   };
 
   const handleLogout = async () => {
