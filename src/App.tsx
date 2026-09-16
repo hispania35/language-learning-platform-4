@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
 import Dashboard from "./pages/Dashboard";
 import CalendarPage from "./pages/CalendarPage";
 import MaterialsPage from "./pages/MaterialsPage";
@@ -26,6 +27,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [lessonRoom, setLessonRoom] = useState<string | null>(null);
   const [chatPreselect, setChatPreselect] = useState<number[] | null>(null);
+  const kbOpen = useKeyboardOpen();
 
   // Реальная высота видимой области (мобильные браузеры прячут/показывают панели)
   useEffect(() => {
@@ -140,6 +142,7 @@ export default function App() {
           onOpenSettings={() => setSettingsOpen(true)}
         />
         <div className="flex-1 flex flex-col min-w-0">
+          <div className={kbOpen && (activePage === "chat" || activePage === "lesson") ? "hidden md:block" : ""}>
           <TopBar
             activePage={activePage}
             onMenuClick={() => setSidebarOpen(true)}
@@ -149,7 +152,8 @@ export default function App() {
             settingsOpen={settingsOpen}
             onSettingsOpenChange={setSettingsOpen}
           />
-          <main className={`flex-1 min-h-0 p-3 sm:p-4 md:p-6 ${activePage === "chat" || activePage === "lesson" ? "overflow-hidden" : "overflow-y-auto"}`}>
+          </div>
+          <main className={`flex-1 min-h-0 p-3 sm:p-4 md:p-6 ${activePage === "chat" || activePage === "lesson" ? "overflow-hidden" : "overflow-y-auto"} ${kbOpen ? "pt-2 pb-2" : ""}`}>
             <div className={`animate-fade-in ${activePage === "lesson" || activePage === "chat" ? "h-full" : ""}`} key={activePage}>
               {renderPage()}
             </div>

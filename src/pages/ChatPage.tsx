@@ -681,6 +681,10 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
                     </button>
 
                     <textarea rows={1} value={text} onChange={e => onType(e.target.value)}
+                      onFocus={e => {
+                        const el = e.currentTarget;
+                        setTimeout(() => el.scrollIntoView({ block: "nearest", behavior: "smooth" }), 350);
+                      }}
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                       placeholder={target.kind === "group" ? `Сообщение группе «${target.name}»` : "Написать сообщение..."}
                       className="flex-1 px-3 py-2.5 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 resize-none max-h-32" />

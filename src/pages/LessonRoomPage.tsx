@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useChatAlerts } from "@/hooks/useChatAlerts";
+import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
 import Icon from "@/components/ui/icon";
 import { apiGetCalendar, apiStartLesson, type Lesson } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
@@ -26,6 +27,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
   const [customRoom, setCustomRoom] = useState("");
   const [notice, setNotice] = useState("");
   const [showHint, setShowHint] = useState(false);
+  const kbOpen = useKeyboardOpen();
   const [chatOpen, setChatOpen] = useState(false);
   const { setInLesson, unread } = useChatAlerts();
 
@@ -100,7 +102,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
     const url = buildRoomUrl(room, user.name);
     return (
       <div className="max-w-6xl mx-auto flex flex-col gap-2 h-full lg:min-h-[420px]" ref={frameRef}>
-        <div className="flex-shrink-0 flex items-center justify-between gap-2 flex-wrap">
+        <div className={`flex-shrink-0 items-center justify-between gap-2 flex-wrap ${kbOpen && chatOpen ? "hidden lg:flex" : "flex"}`}>
           <div className="flex items-center gap-2 min-w-0">
             <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
             <h2 className="font-montserrat font-bold text-foreground">Урок идёт</h2>
@@ -151,7 +153,8 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
         )}
 
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-2">
-          <div className="flex-1 min-h-[280px] min-w-0 bg-card rounded-xl border border-border overflow-hidden">
+          <div className={`flex-1 min-w-0 bg-card rounded-xl border border-border overflow-hidden
+            ${kbOpen && chatOpen ? "hidden lg:block" : "min-h-[280px]"}`}>
             <iframe
               src={url}
               title="Видеоурок"
@@ -161,7 +164,8 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
           </div>
 
           {chatOpen && (
-            <div className="lg:w-80 lg:flex-shrink-0 h-72 lg:h-auto lg:min-h-0 bg-card rounded-xl border border-border overflow-hidden flex flex-col animate-fade-in">
+            <div className={`lg:w-80 lg:flex-shrink-0 lg:h-auto lg:min-h-0 bg-card rounded-xl border border-border overflow-hidden flex flex-col animate-fade-in
+              ${kbOpen ? "flex-1 min-h-0 h-auto" : "h-72"}`}>
               <div className="px-3 py-2 border-b border-border flex items-center gap-2 flex-shrink-0">
                 <Icon name="MessageSquare" size={14} className="text-primary" />
                 <p className="text-sm font-montserrat font-bold text-foreground flex-1">Чат урока</p>
