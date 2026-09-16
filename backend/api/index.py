@@ -1188,7 +1188,7 @@ def start_lesson(event, conn, user_id, role):
         (lesson_id,)
     )
     students = cur.fetchall()
-    url = room_url(lesson_id)
+    url = (body.get("join_url") or "").strip() or room_url(lesson_id)
 
     notify_many(cur, [(sid, f"Урок «{topic}» начался — подключайтесь: {url}")
                       for sid, _, _ in students], "calendar")

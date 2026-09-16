@@ -3,6 +3,7 @@ import { type Page } from "@/App";
 import { type User } from "@/pages/LoginPage";
 import { apiGetNotifications, apiMarkNotificationsRead, apiChangePassword, apiGetMaterials, apiGetHomework, apiGetCalendar, type Notification, type Material, type HomeworkItem, type Lesson } from "@/lib/api";
 import Icon from "@/components/ui/icon";
+import PLATFORMS, { getPlatform, setPlatform, getPlatformLink, setPlatformLink, type VideoPlatform } from "@/lib/videoPlatform";
 
 const pageTitles: Record<Page, string> = {
   dashboard: "Главная",
@@ -40,6 +41,12 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
   const [unread, setUnread] = useState(0);
   const [localSettings, setLocalSettings] = useState(false);
   const showSettings = settingsOpen ?? localSettings;
+  const [platform, setPlatformState] = useState<VideoPlatform>(getPlatform());
+  const [platformLink, setPlatformLinkState] = useState(getPlatformLink(getPlatform()));
+
+  useEffect(() => {
+    setPlatformLinkState(getPlatformLink(platform));
+  }, [platform]);
   const setShowSettings = (v: boolean) => { onSettingsOpenChange ? onSettingsOpenChange(v) : setLocalSettings(v); };
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -329,6 +336,41 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
                 <Icon name="X" size={18} className="text-muted-foreground" />
               </button>
             </div>
+
+            <p className="text-xs font-montserrat font-bold text-foreground mb-2">Видеоконференция по умолчанию</p>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              {PLATFORMS.map(p => (
+                <button
+                  key={p.id}
+                  disabled={p.disabled}
+                  onClick={() => { if (!p.disabled) { setPlatformState(p.id); setPlatform(p.id); } }}
+                  className={`flex items-start gap-2 px-2.5 py-2 rounded-lg border text-left transition-colors
+                    ${p.disabled
+                      ? "border-border bg-muted/40 opacity-50 cursor-not-allowed"
+                      : platform === p.id
+                        ? "red-accent text-white border-transparent"
+                        : "border-border hover:bg-muted text-foreground"}`}>
+                  <Icon name={p.icon} size={15} className="flex-shrink-0 mt-0.5" />
+                  <span className="min-w-0">
+                    <span className="block text-xs font-montserrat font-bold truncate">{p.name}</span>
+                    <span className={`block text-[10px] font-ibm leading-tight ${platform === p.id && !p.disabled ? "text-white/80" : "text-muted-foreground"}`}>
+                      {p.hint}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {PLATFORMS.find(p => p.id === platform)?.needsLink && (
+              <input
+                value={platformLink}
+                onChange={e => { setPlatformLinkState(e.target.value); setPlatformLink(platform, e.target.value); }}
+                placeholder="Ссылка на постоянную комнату"
+                className="w-full px-3 py-2 mb-4 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40"
+              />
+            )}
+
+            <div className="h-px bg-border mb-4" />
 
             <p className="text-xs font-montserrat font-bold text-foreground mb-3">Сменить пароль</p>
             <div className="space-y-3">

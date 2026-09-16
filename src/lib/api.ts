@@ -131,10 +131,10 @@ export async function apiCancelLesson(lessonId: number, reason: string) {
   return r.data as { ok?: boolean; error?: string };
 }
 
-export async function apiStartLesson(lessonId: number) {
+export async function apiStartLesson(lessonId: number, joinUrl?: string) {
   const r = await request(API_URL + "?p=lesson_start", {
     method: "POST",
-    body: JSON.stringify({ lesson_id: lessonId }),
+    body: JSON.stringify({ lesson_id: lessonId, join_url: joinUrl || "" }),
   });
   return r.data as { ok?: boolean; room_url?: string; notified?: number; emails_sent?: number; error?: string };
 }

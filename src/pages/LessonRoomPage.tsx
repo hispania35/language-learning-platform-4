@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useChatAlerts } from "@/hooks/useChatAlerts";
 import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
+import PLATFORMS, { getPlatform, getPlatformLink } from "@/lib/videoPlatform";
 import Icon from "@/components/ui/icon";
 import { apiGetCalendar, apiStartLesson, type Lesson } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
@@ -11,8 +12,14 @@ const JITSI_HOST = "hispania-35.ru";
 export const buildRoomName = (lesson?: Lesson | null) =>
   lesson ? `hispania-lesson-${lesson.id}` : "hispania-room";
 
-export const buildRoomUrl = (room: string, userName: string) =>
-  `https://${JITSI_HOST}/${room}#userInfo.displayName=%22${encodeURIComponent(userName)}%22&config.prejoinPageEnabled=false`;
+export const buildRoomUrl = (room: string, userName: string) => {
+  const p = getPlatform();
+  if (p === "zoom" || p === "sferum") {
+    const link = getPlatformLink(p);
+    if (link) return link.startsWith("http") ? link : `https://${link}`;
+  }
+  return `https://${JITSI_HOST}/${room}#userInfo.displayName=%22${encodeURIComponent(userName)}%22&config.prejoinPageEnabled=false`;
+};
 
 interface Props {
   user: User;
@@ -49,7 +56,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
   }, [initialRoom]);
 
   useEffect(() => {
-    if (!room) { setShowHint(false); return; }
+    if (!room || getPlatform() !== "jitsi") { setShowHint(false); return; }
     setShowHint(true);
     const t = setTimeout(() => setShowHint(false), 5000);
     return () => clearTimeout(t);
@@ -72,7 +79,9 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
     setTimeout(() => frameRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     if (lesson && user.role === "teacher") {
       setNotice("Отправляю приглашения ученикам...");
-      apiStartLesson(lesson.id)
+      const p = getPlatform();
+      const extLink = p === "jitsi" ? "" : getPlatformLink(p);
+      apiStartLesson(lesson.id, extLink ? (extLink.startsWith("http") ? extLink : `https://${extLink}`) : undefined)
         .then(res => {
           if (res.ok) {
             const mails = res.emails_sent || 0;
@@ -106,13 +115,17 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
           <div className="flex items-center gap-2 min-w-0">
             <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse flex-shrink-0" />
             <h2 className="font-montserrat font-bold text-foreground">Урок идёт</h2>
-            <span className="hidden sm:inline text-xs text-muted-foreground font-ibm truncate">комната {room}</span>
+            <span className="hidden sm:inline text-xs text-muted-foreground font-ibm truncate">
+              {PLATFORMS.find(p => p.id === getPlatform())?.name} · комната {room}
+            </span>
           </div>
           <div className="flex gap-1.5 sm:gap-2">
             <button
               title="Скопировать ссылку"
               onClick={() => {
-                navigator.clipboard?.writeText(`https://${JITSI_HOST}/${room}`);
+                const p = getPlatform();
+                const ext = p === "jitsi" ? "" : getPlatformLink(p);
+                navigator.clipboard?.writeText(ext || `https://${JITSI_HOST}/${room}`);
               }}
               className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
               <Icon name="Link" size={15} />
@@ -155,12 +168,31 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-2">
           <div className={`flex-1 min-w-0 bg-card rounded-xl border border-border overflow-hidden
             ${kbOpen && chatOpen ? "hidden lg:block" : "min-h-[280px]"}`}>
-            <iframe
-              src={url}
-              title="Видеоурок"
-              allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
-              className="w-full h-full min-h-[280px] border-0"
-            />
+            {getPlatform() === "jitsi" ? (
+              <iframe
+                src={url}
+                title="Видеоурок"
+                allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
+                className="w-full h-full min-h-[280px] border-0"
+              />
+            ) : (
+              <div className="w-full h-full min-h-[280px] flex flex-col items-center justify-center gap-3 p-6 text-center">
+                <div className="w-14 h-14 rounded-2xl red-accent flex items-center justify-center">
+                  <Icon name={PLATFORMS.find(p => p.id === getPlatform())?.icon || "Video"} size={26} className="text-white" />
+                </div>
+                <p className="text-sm text-muted-foreground font-ibm max-w-xs">
+                  {getPlatformLink(getPlatform())
+                    ? `Конференция ${PLATFORMS.find(p => p.id === getPlatform())?.name} открывается в отдельном окне`
+                    : "Добавьте ссылку на комнату в настройках"}
+                </p>
+                {getPlatformLink(getPlatform()) && (
+                  <a href={url} target="_blank" rel="noreferrer"
+                    className="px-4 py-2.5 rounded-lg red-accent text-white text-sm font-montserrat font-medium hover:opacity-90 transition-opacity">
+                    Открыть конференцию
+                  </a>
+                )}
+              </div>
+            )}
           </div>
 
           {chatOpen && (
