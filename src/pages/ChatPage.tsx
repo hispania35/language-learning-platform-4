@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import { type User } from "@/pages/LoginPage";
 import {
   apiGetChatContacts, apiGetMessages, apiSendMessage, apiEditMessage, apiDeleteMessage, apiSetTyping, apiPinMessage,
+  apiUploadChatFile,
   type ChatMessage, type ChatContact, type ChatGroup,
 } from "@/lib/api";
 import { useChatAlerts } from "@/hooks/useChatAlerts";
@@ -55,6 +56,11 @@ function Attachment({ m }: { m: ChatMessage }) {
       </div>
     );
   }
+  if (m.file_type === "video") {
+    return (
+      <video controls src={m.file_url} className="mt-1.5 rounded-lg max-h-60 w-full bg-black" />
+    );
+  }
   if (m.file_type === "image") {
     return (
       <a href={m.file_url} target="_blank" rel="noreferrer" className="block mt-1.5">
@@ -91,7 +97,8 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
   const [editId, setEditId] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [delMsg, setDelMsg] = useState<ChatMessage | null>(null);
-  const [pending, setPending] = useState<{ name: string; type: string; mime: string; data: string; sec?: number } | null>(null);
+  const [pending, setPending] = useState<{ name: string; type: string; mime: string; blob: Blob; sec?: number } | null>(null);
+  const [upPercent, setUpPercent] = useState(0);
   const [recording, setRecording] = useState(false);
   const [recSec, setRecSec] = useState(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -225,22 +232,15 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
     if (peerTyping && atBottomRef.current) scrollToBottom(true);
   }, [peerTyping, scrollToBottom]);
 
-  const toBase64 = (file: Blob): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(String(r.result));
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
-
   const pickFile = async (f: File) => {
-    if (f.size > 15 * 1024 * 1024) { setErr("Файл больше 15 МБ"); return; }
-    const data = await toBase64(f);
+    if (f.size > 200 * 1024 * 1024) { setErr("Файл больше 200 МБ"); return; }
     setPending({
       name: f.name,
-      type: f.type.startsWith("image/") ? "image" : f.type.startsWith("audio/") ? "audio" : "file",
+      type: f.type.startsWith("image/") ? "image"
+        : f.type.startsWith("audio/") ? "audio"
+        : f.type.startsWith("video/") ? "video" : "file",
       mime: f.type || "application/octet-stream",
-      data,
+      blob: f,
     });
     setErr("");
   };
@@ -255,8 +255,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
       rec.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        const data = await toBase64(blob);
-        setPending({ name: "Голосовое сообщение", type: "audio", mime: "audio/webm", data, sec: recSec });
+        setPending({ name: "Голосовое сообщение.webm", type: "audio", mime: "audio/webm", blob, sec: recSec });
       };
       recorderRef.current = rec;
       rec.start();
@@ -306,13 +305,24 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
     if (!text.trim() && !pending) return;
     setSending(true);
     setErr("");
+    setUpPercent(0);
     try {
+      let fileKey = "";
+      if (pending) {
+        const up = await apiUploadChatFile(pending.blob, pending.name, setUpPercent);
+        if (up.error || !up.key) {
+          setErr(up.error || "Не удалось загрузить файл");
+          setSending(false);
+          return;
+        }
+        fileKey = up.key;
+      }
       const res = await apiSendMessage({
         ...(target.kind === "group" ? { group_id: target.id } : { to_user_id: target.id }),
         text: text.trim(),
-        ...(pending ? {
-          file_data: pending.data, file_name: pending.name,
-          file_type: pending.type, mime: pending.mime, audio_sec: pending.sec || 0,
+        ...(fileKey ? {
+          file_key: fileKey, file_name: pending!.name,
+          file_type: pending!.type, mime: pending!.mime, audio_sec: pending!.sec || 0,
         } : {}),
       });
       if (res.ok) {
@@ -320,9 +330,10 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
         loadMessages(); loadContacts();
       } else setErr(res.error || "Не удалось отправить");
     } catch {
-      setErr("Нет связи с сервером");
+      setErr("Не удалось отправить. Проверьте интернет и попробуйте ещё раз");
     } finally {
       setSending(false);
+      setUpPercent(0);
     }
   };
 
@@ -641,14 +652,25 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
 
                 {pending && (
                   <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-lg bg-muted border border-border">
-                    <Icon name={pending.type === "audio" ? "Mic" : pending.type === "image" ? "Image" : "Paperclip"}
+                    <Icon name={pending.type === "audio" ? "Mic" : pending.type === "image" ? "Image" : pending.type === "video" ? "Video" : "Paperclip"}
                       size={14} className="text-primary flex-shrink-0" />
                     <span className="text-xs font-ibm text-foreground truncate flex-1">
                       {pending.name}{pending.sec ? ` · ${fmtSec(pending.sec)}` : ""}
                     </span>
-                    <button onClick={() => setPending(null)} className="text-muted-foreground hover:text-foreground">
-                      <Icon name="X" size={14} />
-                    </button>
+                    {!sending && (
+                      <button onClick={() => setPending(null)} className="text-muted-foreground hover:text-foreground">
+                        <Icon name="X" size={14} />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {sending && pending && (
+                  <div className="mb-2">
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full red-accent transition-all" style={{ width: `${upPercent}%` }} />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground font-ibm mt-1">Загрузка файла — {upPercent}%</p>
                   </div>
                 )}
 

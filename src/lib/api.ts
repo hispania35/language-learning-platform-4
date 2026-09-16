@@ -311,10 +311,40 @@ export async function apiGetChatContacts() {
   return r.data as { contacts?: ChatContact[]; groups?: ChatGroup[]; error?: string };
 }
 
+/** Загрузить вложение чата напрямую в облако, вернуть ключ файла */
+export async function apiUploadChatFile(
+  file: Blob,
+  fileName: string,
+  onProgress?: (percent: number) => void,
+) {
+  const mime = file.type || "application/octet-stream";
+  const slot = await request(API_URL + "?p=chat_upload_url", {
+    method: "POST",
+    body: JSON.stringify({ file_name: fileName, mime, size: file.size }),
+  });
+  const s = slot.data as { upload_url?: string; key?: string; error?: string };
+  if (!s.upload_url || !s.key) return { error: s.error || "Не удалось начать загрузку" };
+
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", s.upload_url as string);
+    xhr.setRequestHeader("Content-Type", mime);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`)));
+    xhr.onerror = () => reject(new Error("network"));
+    xhr.send(file);
+  });
+
+  return { key: s.key };
+}
+
 export async function apiSendMessage(payload: {
   to_user_id?: number;
   group_id?: number;
   text?: string;
+  file_key?: string;
   file_data?: string;
   file_name?: string;
   file_type?: string;

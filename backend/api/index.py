@@ -118,6 +118,9 @@ def handler(event: dict, context) -> dict:
                 return delete_lesson(event, conn, user_id, role)
 
         # --- Chat ---
+        if path == "chat_upload_url" and method == "POST":
+            return chat_upload_url(event, conn)
+
         if path == "chat_ping" and method == "POST":
             return chat_ping(conn, user_id)
 
@@ -643,8 +646,19 @@ MSG_SELECT = """SELECT m.id, m.from_user_id, m.to_user_id, m.text, m.is_read, m.
                        COALESCE(m.file_url,'') as file_url, COALESCE(m.file_name,'') as file_name,
                        COALESCE(m.file_type,'') as file_type, COALESCE(m.audio_sec,0) as audio_sec,
                        m.group_id, m.edited_at, COALESCE(m.removed_for_all,FALSE) as removed_for_all,
-                       m.pinned_at
+                       m.pinned_at, m.file_key
                 FROM messages m JOIN users u ON u.id=m.from_user_id"""
+
+def _sign_chat_files(items):
+    ready = lib_storage_ready()
+    for it in items:
+        key = it.pop("file_key", None)
+        if key and ready:
+            try:
+                it["file_url"] = lib_signed_get(key)
+            except Exception:
+                it["file_url"] = ""
+
 
 def _visible(user_id):
     return f" AND COALESCE(m.removed_for_all,FALSE)=FALSE AND NOT ({user_id} = ANY(COALESCE(m.hidden_for,'{{}}')))"
@@ -669,6 +683,7 @@ def get_messages(event, conn, user_id):
     rows = cur.fetchall()
     cols = [d[0] for d in cur.description]
     messages = [dict(zip(cols, r)) for r in rows]
+    _sign_chat_files(messages)
 
     typing = False
     if other_id:
@@ -907,19 +922,54 @@ def _store_chat_file(body):
     url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
     return url, name, ftype
 
+CHAT_LIMIT_MB = 200
+
+
+def chat_upload_url(event, conn):
+    """Выдать браузеру ссылку для прямой загрузки вложения чата в облако."""
+    if not lib_storage_ready():
+        conn.close()
+        return resp(400, {"error": "Облачное хранилище не подключено"})
+
+    import uuid
+    body = json.loads(event.get("body") or "{}")
+    file_name = (body.get("file_name") or "file").strip()
+    mime = body.get("mime") or "application/octet-stream"
+    size = int(body.get("size") or 0)
+    if size > CHAT_LIMIT_MB * 1024 * 1024:
+        conn.close()
+        return resp(400, {"error": f"Файл больше {CHAT_LIMIT_MB} МБ"})
+
+    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else "bin"
+    key = f"chat/{uuid.uuid4().hex}.{ext}"
+    put_url = lib_client().generate_presigned_url(
+        "put_object",
+        Params={"Bucket": os.environ["LIB_S3_BUCKET"], "Key": key, "ContentType": mime},
+        ExpiresIn=3600,
+    )
+    conn.close()
+    return resp(200, {"upload_url": put_url, "key": key})
+
+
 def send_message(event, conn, user_id, user_name):
     body = json.loads(event.get("body") or "{}")
     to_id = body.get("to_user_id")
     group_id = body.get("group_id")
     text = (body.get("text") or "").strip()
 
-    try:
-        file_url, file_name, file_type = _store_chat_file(body)
-    except Exception as e:
-        conn.close()
-        return resp(400, {"error": str(e) or "Не удалось загрузить файл"})
+    file_key = (body.get("file_key") or "").strip()
+    if file_key:
+        file_url = ""
+        file_name = (body.get("file_name") or "file").strip()
+        file_type = body.get("file_type") or "file"
+    else:
+        try:
+            file_url, file_name, file_type = _store_chat_file(body)
+        except Exception as e:
+            conn.close()
+            return resp(400, {"error": str(e) or "Не удалось загрузить файл"})
 
-    if not text and not file_url:
+    if not text and not file_url and not file_key:
         conn.close()
         return resp(400, {"error": "Напишите сообщение или прикрепите файл"})
     if not to_id and not group_id:
@@ -939,12 +989,12 @@ def send_message(event, conn, user_id, user_name):
         members = [r[0] for r in cur.fetchall()]
         if members:
             values = ",".join(
-                cur.mogrify("(%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (user_id, sid, text, file_url, file_name, file_type, audio_sec, group_id)).decode()
+                cur.mogrify("(%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (user_id, sid, text, file_url, file_name, file_type, audio_sec, group_id, file_key or None)).decode()
                 for sid in members
             )
             cur.execute(
-                "INSERT INTO messages (from_user_id, to_user_id, text, file_url, file_name, file_type, audio_sec, group_id)"
+                "INSERT INTO messages (from_user_id, to_user_id, text, file_url, file_name, file_type, audio_sec, group_id, file_key)"
                 f" VALUES {values}"
             )
             notify_many(cur, [(sid, f"Сообщение группе «{g[0]}» от {user_name}") for sid in members], "chat")
@@ -952,9 +1002,9 @@ def send_message(event, conn, user_id, user_name):
         return resp(200, {"ok": True, "sent": len(members)})
 
     cur.execute(
-        """INSERT INTO messages (from_user_id, to_user_id, text, file_url, file_name, file_type, audio_sec)
-           VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (user_id, to_id, text, file_url, file_name, file_type, audio_sec)
+        """INSERT INTO messages (from_user_id, to_user_id, text, file_url, file_name, file_type, audio_sec, file_key)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (user_id, to_id, text, file_url, file_name, file_type, audio_sec, file_key or None)
     )
     msg_id = cur.fetchone()[0]
     cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'chat')",

@@ -1,0 +1,1 @@
+ALTER TABLE t_p98019776_language_learning_pl.messages ADD COLUMN IF NOT EXISTS file_key TEXT;
