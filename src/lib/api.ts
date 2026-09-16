@@ -761,3 +761,24 @@ export async function apiDeleteDeck(id: number) {
   const r = await request(`${CARDS_URL}?id=${id}`, { method: "DELETE", body: JSON.stringify({ id }) });
   return r.data as { ok?: boolean; error?: string };
 }
+// ── WebRTC signaling ─────────────────────────────────────────────────────────
+
+export interface RtcSignal { id: number; from: number; kind: string; payload: string }
+export interface RtcPeer { id: number; name: string }
+
+export async function apiRtcPoll(room: string, since: number) {
+  const r = await request(`${API_URL}?p=rtc&room=${encodeURIComponent(room)}&since=${since}`);
+  return r.data as { signals?: RtcSignal[]; peers?: RtcPeer[]; last_id?: number; me?: number; error?: string };
+}
+
+export async function apiRtcSend(room: string, kind: string, payload: unknown) {
+  const r = await request(API_URL + "?p=rtc", {
+    method: "POST",
+    body: JSON.stringify({ room, kind, payload }),
+  });
+  return r.data as { ok?: boolean; error?: string };
+}
+
+export async function apiRtcLeave(room: string) {
+  await request(`${API_URL}?p=rtc&room=${encodeURIComponent(room)}`, { method: "DELETE" });
+}

@@ -70,6 +70,70 @@ def link_students(cur, lesson_id, student_ids):
     values = ",".join(cur.mogrify("(%s,%s)", (lesson_id, sid)).decode() for sid in ids)
     cur.execute(f"INSERT INTO lesson_students (lesson_id, student_id) VALUES {values}")
 
+def rtc_poll(event, conn, user_id, user_name):
+    params = event.get("queryStringParameters") or {}
+    room = (params.get("room") or "").strip()[:128]
+    if not room:
+        conn.close()
+        return resp(400, {"error": "room обязателен"})
+    since = params.get("since")
+    since = int(since) if since and since.isdigit() else 0
+
+    cur = conn.cursor()
+    cur.execute("DELETE FROM rtc_signals WHERE created_at < NOW() - INTERVAL '10 minutes'")
+    cur.execute("DELETE FROM rtc_peers WHERE last_seen < NOW() - INTERVAL '30 seconds'")
+    cur.execute(
+        """INSERT INTO rtc_peers (room, user_id, user_name, last_seen)
+           VALUES (%s, %s, %s, NOW())
+           ON CONFLICT (room, user_id) DO UPDATE SET last_seen=NOW(), user_name=EXCLUDED.user_name""",
+        (room, user_id, user_name)
+    )
+    cur.execute(
+        "SELECT id, sender_id, kind, payload FROM rtc_signals WHERE room=%s AND id>%s AND sender_id<>%s ORDER BY id",
+        (room, since, user_id)
+    )
+    signals = [{"id": r[0], "from": r[1], "kind": r[2], "payload": r[3]} for r in cur.fetchall()]
+    cur.execute("SELECT user_id, user_name FROM rtc_peers WHERE room=%s ORDER BY user_id", (room,))
+    peers = [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
+    conn.commit()
+    cur.close(); conn.close()
+    last_id = signals[-1]["id"] if signals else since
+    return resp(200, {"signals": signals, "peers": peers, "last_id": last_id, "me": user_id})
+
+def rtc_send(event, conn, user_id, user_name):
+    body = json.loads(event.get("body") or "{}")
+    room = (body.get("room") or "").strip()[:128]
+    kind = (body.get("kind") or "").strip()[:16]
+    payload = body.get("payload")
+    if not room or not kind:
+        conn.close()
+        return resp(400, {"error": "room и kind обязательны"})
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO rtc_signals (room, sender_id, kind, payload) VALUES (%s, %s, %s, %s) RETURNING id",
+        (room, user_id, kind, json.dumps(payload))
+    )
+    sid = cur.fetchone()[0]
+    cur.execute(
+        """INSERT INTO rtc_peers (room, user_id, user_name, last_seen)
+           VALUES (%s, %s, %s, NOW())
+           ON CONFLICT (room, user_id) DO UPDATE SET last_seen=NOW()""",
+        (room, user_id, user_name)
+    )
+    conn.commit()
+    cur.close(); conn.close()
+    return resp(200, {"ok": True, "id": sid})
+
+def rtc_leave(event, conn, user_id):
+    params = event.get("queryStringParameters") or {}
+    room = (params.get("room") or "").strip()[:128]
+    cur = conn.cursor()
+    cur.execute("DELETE FROM rtc_peers WHERE room=%s AND user_id=%s", (room, user_id))
+    cur.execute("INSERT INTO rtc_signals (room, sender_id, kind, payload) VALUES (%s, %s, 'bye', '{}')", (room, user_id))
+    conn.commit()
+    cur.close(); conn.close()
+    return resp(200, {"ok": True})
+
 def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
@@ -181,6 +245,14 @@ def handler(event: dict, context) -> dict:
                 return update_group(event, conn, user_id, role)
             if method == "DELETE":
                 return remove_group(event, conn, user_id, role)
+
+        # --- WebRTC signaling ---
+        if path == "rtc" and method == "GET":
+            return rtc_poll(event, conn, user_id, user_name)
+        if path == "rtc" and method == "POST":
+            return rtc_send(event, conn, user_id, user_name)
+        if path == "rtc" and method == "DELETE":
+            return rtc_leave(event, conn, user_id)
 
         # --- Leaderboard ---
         if path == "leaderboard" and method == "GET":

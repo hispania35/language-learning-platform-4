@@ -3,6 +3,7 @@ import { useChatAlerts } from "@/hooks/useChatAlerts";
 import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
 import PLATFORMS, { getPlatform, getPlatformLink } from "@/lib/videoPlatform";
 import Icon from "@/components/ui/icon";
+import WebRTCRoom from "@/components/WebRTCRoom";
 import { apiGetCalendar, apiStartLesson, type Lesson } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
 import ChatPage from "@/pages/ChatPage";
@@ -14,6 +15,7 @@ export const buildRoomName = (lesson?: Lesson | null) =>
 
 export const buildRoomUrl = (room: string, userName: string) => {
   const p = getPlatform();
+  if (p === "webrtc") return `${window.location.origin}/?room=${encodeURIComponent(room)}`;
   if (p === "zoom" || p === "sferum") {
     const link = getPlatformLink(p);
     if (link) return link.startsWith("http") ? link : `https://${link}`;
@@ -80,7 +82,9 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
     if (lesson && user.role === "teacher") {
       setNotice("Отправляю приглашения ученикам...");
       const p = getPlatform();
-      const extLink = p === "jitsi" ? "" : getPlatformLink(p);
+      const extLink = p === "webrtc"
+        ? `${window.location.origin}/?room=${encodeURIComponent(buildRoomName(lesson))}`
+        : p === "jitsi" ? "" : getPlatformLink(p);
       apiStartLesson(lesson.id, extLink ? (extLink.startsWith("http") ? extLink : `https://${extLink}`) : undefined)
         .then(res => {
           if (res.ok) {
@@ -124,18 +128,22 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
               title="Скопировать ссылку"
               onClick={() => {
                 const p = getPlatform();
-                const ext = p === "jitsi" ? "" : getPlatformLink(p);
+                const ext = p === "webrtc"
+                  ? `${window.location.origin}/?room=${encodeURIComponent(room)}`
+                  : p === "jitsi" ? "" : getPlatformLink(p);
                 navigator.clipboard?.writeText(ext || `https://${JITSI_HOST}/${room}`);
               }}
               className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
               <Icon name="Link" size={15} />
               <span className="hidden lg:inline">Скопировать ссылку</span>
             </button>
+            {getPlatform() !== "webrtc" && (
             <a href={url} target="_blank" rel="noreferrer" title="Открыть в новом окне"
               className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
               <Icon name="ExternalLink" size={15} />
               <span className="hidden lg:inline">В новом окне</span>
             </a>
+            )}
             <button onClick={() => setChatOpen(v => !v)} title="Чат урока"
               className={`relative flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border text-sm font-montserrat font-medium transition-colors
                 ${chatOpen ? "red-accent text-white border-transparent" : "border-border text-foreground hover:bg-muted"}`}>
@@ -168,7 +176,9 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-2">
           <div className={`flex-1 min-w-0 bg-card rounded-xl border border-border overflow-hidden
             ${kbOpen && chatOpen ? "hidden lg:block" : "min-h-[280px]"}`}>
-            {getPlatform() === "jitsi" ? (
+            {getPlatform() === "webrtc" ? (
+              <WebRTCRoom room={room} userName={user.name} />
+            ) : getPlatform() === "jitsi" ? (
               <iframe
                 src={url}
                 title="Видеоурок"

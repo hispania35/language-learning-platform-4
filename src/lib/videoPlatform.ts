@@ -13,7 +13,7 @@ export const PLATFORMS: PlatformInfo[] = [
   { id: "jitsi", name: "Jitsi", icon: "Video", hint: "Своя комната, без установки" },
   { id: "zoom", name: "Zoom", icon: "Camera", hint: "Нужна постоянная ссылка", needsLink: true },
   { id: "sferum", name: "Сферум", icon: "GraduationCap", hint: "Нужна постоянная ссылка", needsLink: true },
-  { id: "webrtc", name: "Web RTC", icon: "Radio", hint: "Скоро", disabled: true },
+  { id: "webrtc", name: "Web RTC", icon: "Radio", hint: "Встроенный звонок, размытие фона" },
 ];
 
 const KEY = "video_platform";
