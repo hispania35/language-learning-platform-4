@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, memo } from "react";
 import Icon from "@/components/ui/icon";
 import { type User } from "@/pages/LoginPage";
 import {
@@ -46,36 +46,49 @@ function Linkify({ text, mine }: { text: string; mine: boolean }) {
   );
 }
 
-function Attachment({ m }: { m: ChatMessage }) {
-  if (!m.file_url) return null;
+const fileUrlCache = new Map<number, string>();
+
+function stableUrl(m: ChatMessage) {
+  if (!m.file_url) return "";
+  const cached = fileUrlCache.get(m.id);
+  if (cached) return cached;
+  fileUrlCache.set(m.id, m.file_url);
+  return m.file_url;
+}
+
+const Attachment = memo(function Attachment({ m }: { m: ChatMessage }) {
+  const url = stableUrl(m);
+  if (!url) return null;
   if (m.file_type === "audio") {
     return (
       <div className="mt-1.5">
-        <audio controls src={m.file_url} className="h-9 max-w-full" />
+        <audio controls preload="none" src={url} className="h-9 max-w-full" />
         {!!m.audio_sec && <p className="text-[10px] opacity-70 mt-0.5">{fmtSec(m.audio_sec)}</p>}
       </div>
     );
   }
   if (m.file_type === "video") {
     return (
-      <video controls src={m.file_url} className="mt-1.5 rounded-lg max-h-60 w-full bg-black" />
+      <div className="mt-1.5 w-full max-w-[280px] aspect-video rounded-lg overflow-hidden bg-black">
+        <video controls preload="metadata" playsInline src={url} className="w-full h-full object-contain" />
+      </div>
     );
   }
   if (m.file_type === "image") {
     return (
-      <a href={m.file_url} target="_blank" rel="noreferrer" className="block mt-1.5">
-        <img src={m.file_url} alt={m.file_name} className="rounded-lg max-h-52 object-cover" />
+      <a href={url} target="_blank" rel="noreferrer" className="block mt-1.5">
+        <img src={url} alt={m.file_name} loading="lazy" className="rounded-lg max-h-52 object-cover" />
       </a>
     );
   }
   return (
-    <a href={m.file_url} target="_blank" rel="noreferrer"
+    <a href={url} target="_blank" rel="noreferrer"
       className="mt-1.5 flex items-center gap-2 px-2.5 py-2 rounded-lg bg-black/10 hover:bg-black/15 transition-colors">
       <Icon name="Paperclip" size={14} className="flex-shrink-0" />
       <span className="text-xs font-ibm truncate">{m.file_name || "Файл"}</span>
     </a>
   );
-}
+}, (a, b) => a.m.id === b.m.id && a.m.file_type === b.m.file_type);
 
 export default function ChatPage({ user, preselect, panel }: { user: User; preselect?: number[] | null; panel?: boolean }) {
   const isTeacher = user.role === "teacher";
@@ -138,6 +151,15 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
     if (changed) { setMessages([]); setLoadedKey(null); setSearchOpen(false); setMsgSearch(""); }
   }, [target]);
 
+  const sameMsgs = (a: ChatMessage[], b: ChatMessage[]) =>
+    a.length === b.length && a.every((m, i) =>
+      m.id === b[i].id && m.text === b[i].text && m.is_read === b[i].is_read &&
+      m.edited_at === b[i].edited_at && m.pinned_at === b[i].pinned_at);
+
+  const applyMsgs = useCallback((next: ChatMessage[]) => {
+    setMessages(prev => (sameMsgs(prev, next) ? prev : next));
+  }, []);
+
   const loadMessages = useCallback(() => {
     const t = targetRef.current;
     if (!t) return;
@@ -148,7 +170,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
       apiGetMessages(ids[0]).then(res => {
         if (targetRef.current?.kind !== "group" || targetRef.current.id !== t.id) return;
         if (!Array.isArray(res.messages)) return;
-        setMessages(res.messages.filter(m => m.group_id === t.id));
+        applyMsgs(res.messages.filter(m => m.group_id === t.id));
         setLoadedKey(`${t.kind}_${t.id}`);
       }).catch(() => {});
       return;
@@ -157,12 +179,12 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
     apiGetMessages(t.id).then(res => {
       if (targetRef.current?.kind !== "user" || targetRef.current.id !== t.id) return;
       if (!Array.isArray(res.messages)) return;
-      setMessages(res.messages);
+      applyMsgs(res.messages);
       setLoadedKey(`${t.kind}_${t.id}`);
       setPeerTyping(!!res.typing);
       refresh();
     }).catch(() => {});
-  }, [refresh]);
+  }, [refresh, applyMsgs]);
 
   useEffect(() => {
     if (!target) return;
