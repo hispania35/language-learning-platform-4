@@ -6,6 +6,7 @@ import Dashboard from "./pages/Dashboard";
 import CalendarPage from "./pages/CalendarPage";
 import MaterialsPage from "./pages/MaterialsPage";
 import HomeworkPage from "./pages/HomeworkPage";
+import ExercisesPage from "./pages/ExercisesPage";
 import ProfilePage from "./pages/ProfilePage";
 import StudentsPage from "./pages/StudentsPage";
 import ChatPage from "./pages/ChatPage";
@@ -17,7 +18,7 @@ import ChatToasts from "./components/ChatToasts";
 import { ChatAlertsProvider } from "./hooks/useChatAlerts";
 import { apiMe, apiLogout } from "./lib/api";
 
-export type Page = "dashboard" | "calendar" | "lesson" | "materials" | "homework" | "students" | "chat" | "profile";
+export type Page = "dashboard" | "calendar" | "lesson" | "materials" | "homework" | "exercises" | "students" | "chat" | "profile";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -116,6 +117,7 @@ export default function App() {
       case "lesson": return <LessonRoomPage user={user} initialRoom={lessonRoom} onLeave={() => setLessonRoom(null)} />;
       case "materials": return <MaterialsPage user={user} />;
       case "homework": return <HomeworkPage user={user} />;
+      case "exercises": return <ExercisesPage user={user} />;
       case "students": return <StudentsPage user={user} />;
       case "chat": return <ChatPage user={user} preselect={chatPreselect} />;
       case "profile": return <ProfilePage user={user} />;

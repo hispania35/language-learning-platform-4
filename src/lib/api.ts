@@ -3,6 +3,7 @@ const HOMEWORK_URL = "https://functions.poehali.dev/ada0a99c-976c-4672-bfd4-ae6d
 const API_URL = "https://functions.poehali.dev/e7c17244-0dc8-4e62-b8d4-2e668d7af9d1";
 const LIBRARY_URL = "https://functions.poehali.dev/5b3dca5a-a2f2-4bfb-a41e-c63f332038b0";
 const CARDS_URL = "https://functions.poehali.dev/739af8e4-6a45-4257-afe4-8552e71a4946";
+const EXERCISES_URL = "https://functions.poehali.dev/a3801aae-f34e-4706-8b57-1d1f4bb3fbc2";
 
 function getToken(): string {
   return localStorage.getItem("hispania_token") || "";
@@ -781,4 +782,101 @@ export async function apiRtcSend(room: string, kind: string, payload: unknown) {
 
 export async function apiRtcLeave(room: string) {
   await request(`${API_URL}?p=rtc&room=${encodeURIComponent(room)}`, { method: "DELETE" });
+}
+
+// ── Интерактивные задания ────────────────────────────────────────────────────
+
+export type ExTemplate = "quiz" | "match" | "gaps" | "order" | "truefalse" | "cards";
+
+export interface ExItem {
+  question?: string;
+  options?: string[];
+  answer?: number | string | boolean;
+  left?: string;
+  right?: string;
+  text?: string;
+  sentence?: string;
+  hint?: string;
+  statement?: string;
+}
+
+export interface ExResult {
+  name: string;
+  score: number;
+  total: number;
+  seconds: number;
+  created_at: string;
+}
+
+export interface Exercise {
+  id: number;
+  title: string;
+  template: ExTemplate;
+  subject?: string;
+  instruction?: string;
+  items: ExItem[];
+  created_at: string;
+  students: { id: number; name: string; avatar: string }[];
+  results: ExResult[];
+}
+
+export async function apiGetExercises() {
+  const r = await request(EXERCISES_URL);
+  return r.data as { exercises?: Exercise[]; ai_ready?: boolean; error?: string };
+}
+
+export async function apiGenerateExercise(data: {
+  template: ExTemplate;
+  topic: string;
+  count?: number;
+  level?: string;
+}) {
+  const r = await request(EXERCISES_URL + "?p=generate", { method: "POST", body: JSON.stringify(data) });
+  return r.data as { items?: ExItem[]; error?: string };
+}
+
+export async function apiCreateExercise(data: {
+  title: string;
+  template: ExTemplate;
+  subject?: string;
+  instruction?: string;
+  items: ExItem[];
+  student_ids?: number[];
+}) {
+  const r = await request(EXERCISES_URL, { method: "POST", body: JSON.stringify(data) });
+  return r.data as { ok?: boolean; id?: number; count?: number; error?: string };
+}
+
+export async function apiUpdateExercise(data: {
+  id: number;
+  title: string;
+  subject?: string;
+  instruction?: string;
+  items: ExItem[];
+}) {
+  const r = await request(EXERCISES_URL, { method: "PUT", body: JSON.stringify(data) });
+  return r.data as { ok?: boolean; error?: string };
+}
+
+export async function apiAssignExercise(exercise_id: number, student_ids: number[]) {
+  const r = await request(EXERCISES_URL + "?p=assign", {
+    method: "POST",
+    body: JSON.stringify({ exercise_id, student_ids }),
+  });
+  return r.data as { ok?: boolean; students?: number; error?: string };
+}
+
+export async function apiSaveExResult(data: {
+  exercise_id: number;
+  score: number;
+  total: number;
+  seconds: number;
+}) {
+  const r = await request(EXERCISES_URL + "?p=result", { method: "POST", body: JSON.stringify(data) });
+  return r.data as { ok?: boolean; error?: string };
+}
+
+export async function apiDeleteExercise(id: number) {
+  const r = await request(`${EXERCISES_URL}?id=${id}`, { method: "DELETE" });
+  return r.data as { ok?: boolean; error?: string };
 }
