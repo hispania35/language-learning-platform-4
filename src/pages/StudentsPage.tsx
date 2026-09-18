@@ -17,7 +17,7 @@ const GROUP_COLORS = [
 const colorOf = (key: string) => GROUP_COLORS.find(c => c.key === key) || GROUP_COLORS[0];
 
 export default function StudentsPage({ user }: { user: User }) {
-  const isTeacher = user.role === "teacher";
+  const isTeacher = (user.role === "teacher" || user.role === "admin");
   const [tab, setTab] = useState<"students" | "groups">("students");
   const [students, setStudents] = useState<StudentInfo[]>([]);
   const [groups, setGroups] = useState<StudentGroup[]>([]);

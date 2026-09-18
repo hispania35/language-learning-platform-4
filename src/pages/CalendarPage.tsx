@@ -3,6 +3,8 @@ import Icon from "@/components/ui/icon";
 import { apiGetCalendar, apiCreateLesson, apiMoveLesson, apiDeleteLesson, apiUpdateLesson, apiGetStudents, apiGetGroups, apiStartLesson, apiCancelLesson, type Lesson, type StudentInfo, type StudentGroup } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
 import { buildRoomName } from "@/pages/LessonRoomPage";
+import { useSettings } from "@/hooks/useSettings";
+import BookingBoard from "@/components/BookingBoard";
 
 const DAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"];
 const MONTHS_GEN = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
@@ -47,7 +49,9 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const todayKey = toKey(today);
   const nowTime = `${String(today.getHours()).padStart(2, "0")}:${String(today.getMinutes()).padStart(2, "0")}`;
   const weekAnchor = (() => { const d = new Date(today); d.setHours(12, 0, 0, 0); return d; })();
-  const isTeacher = user.role === "teacher";
+  const isTeacher = (user.role === "teacher" || user.role === "admin");
+  const { settings } = useSettings();
+  const bookingMode = settings.schedule_mode === "booking";
 
   const [weekStart, setWeekStart] = useState<Date>(weekAnchor);
   const [selected, setSelected] = useState<{ date: string; time: string } | null>(null);
@@ -490,8 +494,13 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
     }
   };
 
+  const reloadLessons = () => {
+    apiGetCalendar().then(r => { if (r.lessons) setLessons(r.lessons); }).catch(() => {});
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-5">
+      {bookingMode && <BookingBoard user={user} onChanged={reloadLessons} />}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-3 sm:gap-5">
 
         {/* Week schedule */}

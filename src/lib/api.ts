@@ -32,7 +32,23 @@ export async function apiLogin(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ action: "login", email, password }),
   });
+  return r.data as { token?: string; user?: ApiUser; twofa?: boolean; user_id?: number; hint?: string; error?: string };
+}
+
+export async function apiVerifyCode(user_id: number, code: string) {
+  const r = await request(AUTH_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "verify_code", user_id, code }),
+  });
   return r.data as { token?: string; user?: ApiUser; error?: string };
+}
+
+export async function apiResendCode(user_id: number) {
+  const r = await request(AUTH_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "resend_code", user_id }),
+  });
+  return r.data as { ok?: boolean; hint?: string; error?: string };
 }
 
 export async function apiRegister(name: string, email: string, password: string, role: string, level?: string) {
@@ -68,9 +84,9 @@ export async function apiResetDo(reset_id: number, user_id: number, new_password
   return r.data as { ok?: boolean; error?: string };
 }
 
-export async function apiChangePassword(old_password: string, new_password: string) {
-  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "change_password", old_password, new_password }) });
-  return r.data as { ok?: boolean; error?: string };
+export async function apiChangePassword(old_password: string, new_password: string, code?: string) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "change_password", old_password, new_password, code }) });
+  return r.data as { ok?: boolean; need_code?: boolean; hint?: string; error?: string };
 }
 
 // ── Homework ──────────────────────────────────────────────────────────────────
@@ -390,7 +406,7 @@ export async function apiGetLeaderboard() {
 export interface ApiUser {
   id: number;
   name: string;
-  role: "student" | "teacher";
+  role: "student" | "teacher" | "admin";
   level?: string;
   avatar: string;
 }
@@ -879,4 +895,60 @@ export async function apiSaveExResult(data: {
 export async function apiDeleteExercise(id: number) {
   const r = await request(`${EXERCISES_URL}?id=${id}`, { method: "DELETE" });
   return r.data as { ok?: boolean; error?: string };
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+export interface HomeBlockPref { id: string; on: boolean }
+
+export interface AppSettings {
+  home_blocks: HomeBlockPref[];
+  schedule_mode: "assigned" | "booking";
+  video_platform: string;
+  video_link: string;
+  notify_chat_sound: boolean;
+  notify_chat_toast: boolean;
+  notify_chat_email: boolean;
+}
+
+export async function apiGetSettings() {
+  const r = await request(`${API_URL}?p=settings`);
+  return r.data as { settings?: AppSettings; inherited?: string[]; error?: string };
+}
+
+export async function apiSaveSettings(settings: Partial<AppSettings>) {
+  const r = await request(`${API_URL}?p=settings`, { method: "POST", body: JSON.stringify({ settings }) });
+  return r.data as { ok?: boolean; settings?: AppSettings; error?: string };
+}
+
+// ── Slots ─────────────────────────────────────────────────────────────────────
+
+export interface LessonSlot {
+  id: number;
+  date: string;
+  time: string;
+  duration_min: number;
+  booked_by: number | null;
+  booked_name: string;
+  mine: boolean;
+}
+
+export async function apiGetSlots() {
+  const r = await request(`${API_URL}?p=slots`);
+  return r.data as { slots?: LessonSlot[]; error?: string };
+}
+
+export async function apiCreateSlots(slots: { date: string; time: string }[], duration_min = 60) {
+  const r = await request(`${API_URL}?p=slots`, { method: "POST", body: JSON.stringify({ slots, duration_min }) });
+  return r.data as { ok?: boolean; added?: number; error?: string };
+}
+
+export async function apiDeleteSlot(id: number) {
+  const r = await request(`${API_URL}?p=slots&id=${id}`, { method: "DELETE" });
+  return r.data as { ok?: boolean; error?: string };
+}
+
+export async function apiBookSlot(slot_id: number, cancel = false) {
+  const r = await request(`${API_URL}?p=slot_book`, { method: "POST", body: JSON.stringify({ slot_id, cancel }) });
+  return r.data as { ok?: boolean; lesson_id?: number; error?: string };
 }

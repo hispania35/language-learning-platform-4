@@ -112,7 +112,7 @@ def parse_rows(raw, words):
 
 def translate(event, conn, role):
     """Перевести список слов и придумать примеры употребления."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     if not gpt_ready():
@@ -166,7 +166,7 @@ def translate(event, conn, role):
 def list_decks(conn, user_id, role):
     """Наборы карточек: учитель видит свои, ученик — выданные ему."""
     cur = conn.cursor()
-    if role == "teacher":
+    if role in ("teacher", "admin"):
         cur.execute(
             """SELECT d.id, d.title, d.description, d.lang_from, d.lang_to, d.created_at
                FROM card_decks d WHERE d.teacher_id=%s ORDER BY d.created_at DESC""",
@@ -200,7 +200,7 @@ def list_decks(conn, user_id, role):
                 "example": ex, "example_ru": ex_ru,
             })
 
-        if role == "teacher":
+        if role in ("teacher", "admin"):
             cur.execute(
                 f"""SELECT a.deck_id, u.id, u.name, u.avatar
                     FROM card_deck_assignments a JOIN users u ON u.id=a.student_id
@@ -226,7 +226,7 @@ def list_decks(conn, user_id, role):
 
 def create_deck(event, conn, user_id, role):
     """Создать набор карточек вместе со словами."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -278,7 +278,7 @@ def create_deck(event, conn, user_id, role):
 
 def assign_deck(event, conn, user_id, role):
     """Выдать набор карточек ученикам (полная замена списка)."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -341,7 +341,7 @@ def save_progress(event, conn, user_id):
 
 def delete_deck(event, conn, user_id, role):
     """Удалить набор карточек."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     params = event.get("queryStringParameters") or {}

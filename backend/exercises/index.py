@@ -139,7 +139,7 @@ def shuffle_quiz(items):
 
 def list_exercises(conn, user_id, role):
     cur = conn.cursor()
-    if role == "teacher":
+    if role in ("teacher", "admin"):
         cur.execute(
             """SELECT id, title, template, subject, instruction, items, created_at
                FROM exercises WHERE teacher_id=%s ORDER BY id DESC""",
@@ -166,7 +166,7 @@ def list_exercises(conn, user_id, role):
         })
 
     ids = [e["id"] for e in out]
-    if ids and role == "teacher":
+    if ids and role in ("teacher", "admin"):
         idlist = ",".join(str(i) for i in ids)
         cur.execute(
             f"""SELECT a.exercise_id, u.id, u.name, u.avatar FROM exercise_assignments a
@@ -211,7 +211,7 @@ def list_exercises(conn, user_id, role):
 
 
 def create_exercise(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -259,7 +259,7 @@ def assign_students(cur, ex_id, student_ids, title):
 
 
 def update_exercise(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -286,7 +286,7 @@ def update_exercise(event, conn, user_id, role):
 
 
 def assign_exercise(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -390,7 +390,7 @@ PROMPTS = {
 
 
 def generate_exercise(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     conn.close()

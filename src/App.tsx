@@ -11,15 +11,17 @@ import ProfilePage from "./pages/ProfilePage";
 import StudentsPage from "./pages/StudentsPage";
 import ChatPage from "./pages/ChatPage";
 import LessonRoomPage from "./pages/LessonRoomPage";
+import SettingsPage from "./pages/SettingsPage";
 import LoginPage, { type User } from "./pages/LoginPage";
 import Sidebar from "./components/Sidebar";
 import TopBar from "./components/TopBar";
 import ChatToasts from "./components/ChatToasts";
 import { ChatAlertsProvider } from "./hooks/useChatAlerts";
+import { SettingsProvider } from "./hooks/useSettings";
 import { apiMe, apiLogout } from "./lib/api";
 import { setPlatform } from "./lib/videoPlatform";
 
-export type Page = "dashboard" | "calendar" | "lesson" | "materials" | "homework" | "exercises" | "students" | "chat" | "profile";
+export type Page = "dashboard" | "calendar" | "lesson" | "materials" | "homework" | "exercises" | "students" | "chat" | "profile" | "settings";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -135,6 +137,7 @@ export default function App() {
       case "students": return <StudentsPage user={user} />;
       case "chat": return <ChatPage user={user} preselect={chatPreselect} />;
       case "profile": return <ProfilePage user={user} />;
+      case "settings": return <SettingsPage user={user} />;
       default: return (
         <Dashboard user={user} onNavigate={setActivePage}
           onOpenChat={(peerId) => { setChatPreselect(peerId ? [peerId] : null); setActivePage("chat"); }} />
@@ -144,6 +147,7 @@ export default function App() {
 
   return (
     <TooltipProvider>
+    <SettingsProvider enabled={!!user}>
     <ChatAlertsProvider enabled={!!user}>
       <Toaster />
       <ChatToasts onNavigate={setActivePage} />
@@ -155,7 +159,7 @@ export default function App() {
           isOpen={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           user={user}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => { setActivePage("settings"); setSidebarOpen(false); }}
         />
         <div className="flex-1 flex flex-col min-w-0">
           <div className={kbOpen && (activePage === "chat" || activePage === "lesson") ? "hidden md:block" : ""}>
@@ -177,6 +181,7 @@ export default function App() {
         </div>
       </div>
     </ChatAlertsProvider>
+    </SettingsProvider>
     </TooltipProvider>
   );
 }

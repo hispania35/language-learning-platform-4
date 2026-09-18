@@ -1,9 +1,9 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
 import Footer from "@/components/Footer";
-import { apiLogin, apiRegister, apiResetRequest } from "@/lib/api";
+import { apiLogin, apiRegister, apiResetRequest, apiVerifyCode, apiResendCode } from "@/lib/api";
 
-export type UserRole = "student" | "teacher";
+export type UserRole = "student" | "teacher" | "admin";
 
 export interface User {
   id: number;
@@ -25,7 +25,13 @@ const DEMO = {
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
-  const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot" | "code">("login");
+
+  // Двухфакторный вход администратора
+  const [codeUserId, setCodeUserId] = useState<number | null>(null);
+  const [codeHint, setCodeHint] = useState("");
+  const [code, setCode] = useState("");
+  const [resent, setResent] = useState("");
 
   // Login state
   const [email, setEmail] = useState("");
@@ -46,10 +52,39 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotDone, setForgotDone] = useState(false);
 
-  const switchMode = (m: "login" | "register" | "forgot") => {
+  const switchMode = (m: "login" | "register" | "forgot" | "code") => {
     setMode(m);
     setError("");
     setForgotDone(false);
+  };
+
+  const handleVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (codeUserId === null) return;
+    setError("");
+    setLoading(true);
+    try {
+      const res = await apiVerifyCode(codeUserId, code.trim());
+      if (res.error || !res.token || !res.user) {
+        setError(res.error || "Неверный код");
+        setLoading(false);
+        return;
+      }
+      localStorage.setItem("hispania_token", res.token);
+      onLogin({ id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar });
+    } catch {
+      setError("Ошибка соединения. Попробуйте ещё раз.");
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (codeUserId === null) return;
+    setError(""); setResent("");
+    const res = await apiResendCode(codeUserId).catch(() => null);
+    if (res?.error) { setError(res.error); return; }
+    setResent("Новый код отправлен на почту");
+    setCode("");
   };
 
   const handleForgot = async (e: React.FormEvent) => {
@@ -72,8 +107,17 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setLoading(true);
     try {
       const res = await apiLogin(email.trim().toLowerCase(), password);
+      if (res.twofa && res.user_id) {
+        setCodeUserId(res.user_id);
+        setCodeHint(res.hint || "");
+        setCode("");
+        setResent("");
+        setMode("code");
+        setLoading(false);
+        return;
+      }
       if (res.error || !res.token || !res.user) {
-        setError(res.error || "Неверный email или пароль");
+        setError(res.error || "Неверный логин или пароль");
         setLoading(false);
         return;
       }
@@ -112,7 +156,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     }
   };
 
-  const fillDemo = (role: UserRole) => {
+  const fillDemo = (role: "student" | "teacher") => {
     setEmail(DEMO[role].email);
     setPassword(DEMO[role].password);
     setError("");
@@ -239,10 +283,11 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Email</label>
+                  <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Email или логин</label>
                   <div className="relative">
                     <Icon name="Mail" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <input type="email" value={email} onChange={e => { setEmail(e.target.value); setError(""); }}
+                    <input type="text" autoComplete="username" value={email}
+                      onChange={e => { setEmail(e.target.value); setError(""); }}
                       placeholder="your@email.ru" required
                       className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
                   </div>
@@ -273,6 +318,52 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 <button type="button" onClick={() => switchMode("forgot")}
                   className="w-full text-center text-xs text-muted-foreground hover:text-foreground font-ibm transition-colors pt-1">
                   Забыл пароль?
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* ── КОД ПОДТВЕРЖДЕНИЯ ── */}
+          {mode === "code" && (
+            <div className="animate-fade-in">
+              <button onClick={() => { switchMode("login"); setCode(""); }}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-ibm mb-5 transition-colors">
+                <Icon name="ArrowLeft" size={14} />Вернуться ко входу
+              </button>
+
+              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-4">
+                <Icon name="ShieldCheck" size={24} className="text-primary" />
+              </div>
+              <h2 className="font-montserrat font-black text-lg text-foreground mb-1">Подтверждение входа</h2>
+              <p className="text-sm text-muted-foreground font-ibm mb-5">
+                Мы отправили код из 6 цифр на почту{codeHint ? ` ${codeHint}` : ""}. Код действует 10 минут.
+              </p>
+
+              <form onSubmit={handleVerify} className="space-y-4">
+                <input
+                  value={code}
+                  onChange={e => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }}
+                  inputMode="numeric" autoFocus placeholder="000000" required
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-card text-foreground text-center text-2xl font-montserrat font-black tracking-[0.5em] outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
+
+                {error && (
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+                    <Icon name="AlertCircle" size={15} className="text-red-500 flex-shrink-0" />
+                    <p className="text-sm text-red-700 font-ibm">{error}</p>
+                  </div>
+                )}
+                {resent && !error && (
+                  <p className="text-sm text-green-700 font-ibm bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">{resent}</p>
+                )}
+
+                <button type="submit" disabled={loading || code.length !== 6}
+                  className="w-full py-3 red-accent text-white rounded-xl font-montserrat font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2">
+                  {loading ? <><Icon name="Loader" size={16} className="animate-spin" />Проверяю...</> : <>Подтвердить <Icon name="ArrowRight" size={16} /></>}
+                </button>
+
+                <button type="button" onClick={handleResend}
+                  className="w-full text-center text-xs text-muted-foreground hover:text-foreground font-ibm transition-colors pt-1">
+                  Не пришёл код? Отправить ещё раз
                 </button>
               </form>
             </div>

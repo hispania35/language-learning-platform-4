@@ -12,6 +12,7 @@ import os
 import secrets
 import psycopg2
 from datetime import datetime, timedelta
+from mailer import send_email, _wrap
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -32,6 +33,10 @@ def handler(event: dict, context) -> dict:
 
     if method == "POST" and action == "login":
         return login(event)
+    if method == "POST" and action == "verify_code":
+        return verify_code(event)
+    if method == "POST" and action == "resend_code":
+        return resend_code(event)
     if method == "POST" and action == "register":
         return register(event)
     if method == "POST" and action == "logout":
@@ -62,15 +67,31 @@ def login(event):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, name, role, level, avatar FROM users WHERE email=%s AND password_hash=%s",
+        "SELECT id, name, role, level, avatar, COALESCE(twofa_email,'') FROM users WHERE email=%s AND password_hash=%s",
         (email, password)
     )
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
-        return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Неверный email или пароль"})}
+        return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Неверный логин или пароль"})}
 
-    user_id, name, role, level, avatar = row
+    user_id, name, role, level, avatar, twofa_email = row
+
+    # Администратор входит только с одноразовым кодом из письма
+    if role == "admin" and twofa_email:
+        code = f"{secrets.randbelow(1000000):06d}"
+        cur.execute(
+            "INSERT INTO login_codes (user_id, code, purpose, expires_at) VALUES (%s,%s,'login',NOW() + INTERVAL '10 minutes')",
+            (user_id, code)
+        )
+        conn.commit()
+        cur.close(); conn.close()
+        send_code_email(twofa_email, code, "вход в панель администратора")
+        return {
+            "statusCode": 200,
+            "headers": CORS,
+            "body": json.dumps({"twofa": True, "user_id": user_id, "hint": mask_email(twofa_email)})
+        }
     token = secrets.token_hex(32)
     expires = datetime.now() + timedelta(days=30)
 
@@ -117,9 +138,15 @@ def register(event):
         cur.close(); conn.close()
         return {"statusCode": 409, "headers": CORS, "body": json.dumps({"error": "Пользователь с таким email уже существует"})}
 
+    teacher_id = None
+    if role == "student":
+        cur.execute("SELECT id FROM users WHERE role='teacher' ORDER BY id LIMIT 1")
+        trow = cur.fetchone()
+        teacher_id = trow[0] if trow else None
+
     cur.execute(
-        "INSERT INTO users (email, password_hash, name, role, level, avatar) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
-        (email, password, name, role, level if role == "student" else None, avatar)
+        "INSERT INTO users (email, password_hash, name, role, level, avatar, teacher_id) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (email, password, name, role, level if role == "student" else None, avatar, teacher_id)
     )
     user_id = cur.fetchone()[0]
 
@@ -252,10 +279,47 @@ def change_password(event):
         return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Новый пароль должен быть не менее 6 символов"})}
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT id FROM users WHERE id=%s AND password_hash=%s", (user_id, old_password))
-    if not cur.fetchone():
+    cur.execute("SELECT id, role, COALESCE(twofa_email,'') FROM users WHERE id=%s AND password_hash=%s", (user_id, old_password))
+    urow = cur.fetchone()
+    if not urow:
         cur.close(); conn.close()
         return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Текущий пароль неверен"})}
+
+    # Администратору смена пароля подтверждается кодом из письма
+    if urow[1] == "admin" and urow[2]:
+        code = (body.get("code") or "").strip()
+        if not code:
+            cur.execute("UPDATE login_codes SET used=TRUE WHERE user_id=%s AND used=FALSE AND purpose='change'", (user_id,))
+            fresh = f"{secrets.randbelow(1000000):06d}"
+            cur.execute(
+                "INSERT INTO login_codes (user_id, code, purpose, expires_at) VALUES (%s,%s,'change',NOW() + INTERVAL '10 minutes')",
+                (user_id, fresh)
+            )
+            conn.commit(); cur.close(); conn.close()
+            send_code_email(urow[2], fresh, "смену пароля администратора")
+            return {"statusCode": 200, "headers": CORS,
+                    "body": json.dumps({"need_code": True, "hint": mask_email(urow[2])})}
+
+        cur.execute(
+            """SELECT id, code, attempts FROM login_codes
+               WHERE user_id=%s AND used=FALSE AND purpose='change' AND expires_at > NOW()
+               ORDER BY id DESC LIMIT 1""",
+            (user_id,)
+        )
+        crow = cur.fetchone()
+        if not crow:
+            cur.close(); conn.close()
+            return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Код истёк, начните заново"})}
+        if crow[2] >= 5:
+            cur.execute("UPDATE login_codes SET used=TRUE WHERE id=%s", (crow[0],))
+            conn.commit(); cur.close(); conn.close()
+            return {"statusCode": 429, "headers": CORS, "body": json.dumps({"error": "Слишком много попыток"})}
+        if code != crow[1]:
+            cur.execute("UPDATE login_codes SET attempts=attempts+1 WHERE id=%s", (crow[0],))
+            conn.commit(); cur.close(); conn.close()
+            return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Неверный код"})}
+        cur.execute("UPDATE login_codes SET used=TRUE WHERE id=%s", (crow[0],))
+
     cur.execute("UPDATE users SET password_hash=%s WHERE id=%s", (new_password, user_id))
     conn.commit(); cur.close(); conn.close()
     return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}
@@ -286,3 +350,110 @@ def me(event):
         "headers": CORS,
         "body": json.dumps({"user": {"id": user_id, "name": name, "role": role, "level": level, "avatar": avatar}})
     }
+
+
+def mask_email(mail: str) -> str:
+    """Показывает почту частично: ser***@mail.ru"""
+    if "@" not in mail:
+        return mail
+    name, dom = mail.split("@", 1)
+    head = name[:3] if len(name) > 3 else name[:1]
+    return f"{head}***@{dom}"
+
+
+def send_code_email(to_mail: str, code: str, reason: str) -> bool:
+    html = _wrap(
+        "Код подтверждения",
+        [
+            f"Ваш одноразовый код на {reason}:",
+            f'<b style="font-size:30px;letter-spacing:6px;color:#111827">{code}</b>',
+            "Код действует 10 минут. Если вы не запрашивали вход — просто удалите письмо.",
+        ],
+    )
+    return send_email(to_mail, f"Код подтверждения: {code}", html, f"Код подтверждения: {code}")
+
+
+def issue_session(conn, cur, user_id, name, role, level, avatar):
+    token = secrets.token_hex(32)
+    expires = datetime.now() + timedelta(days=30)
+    cur.execute("INSERT INTO sessions (user_id, token, expires_at) VALUES (%s,%s,%s)", (user_id, token, expires))
+    conn.commit()
+    cur.close(); conn.close()
+    return {
+        "statusCode": 200,
+        "headers": CORS,
+        "body": json.dumps({
+            "token": token,
+            "user": {"id": user_id, "name": name, "role": role, "level": level, "avatar": avatar}
+        })
+    }
+
+
+def verify_code(event):
+    """Проверяет одноразовый код и выдаёт сессию администратору."""
+    body = json.loads(event.get("body") or "{}")
+    user_id = body.get("user_id")
+    code = (body.get("code") or "").strip()
+
+    if not user_id or not code:
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Введите код из письма"})}
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, code, attempts FROM login_codes
+           WHERE user_id=%s AND used=FALSE AND purpose='login' AND expires_at > NOW()
+           ORDER BY id DESC LIMIT 1""",
+        (int(user_id),)
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Код истёк, запросите новый"})}
+
+    code_id, real_code, attempts = row
+    if attempts >= 5:
+        cur.execute("UPDATE login_codes SET used=TRUE WHERE id=%s", (code_id,))
+        conn.commit(); cur.close(); conn.close()
+        return {"statusCode": 429, "headers": CORS, "body": json.dumps({"error": "Слишком много попыток, запросите новый код"})}
+
+    if code != real_code:
+        cur.execute("UPDATE login_codes SET attempts=attempts+1 WHERE id=%s", (code_id,))
+        conn.commit(); cur.close(); conn.close()
+        return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Неверный код"})}
+
+    cur.execute("UPDATE login_codes SET used=TRUE WHERE id=%s", (code_id,))
+    cur.execute("SELECT id, name, role, level, avatar FROM users WHERE id=%s", (int(user_id),))
+    u = cur.fetchone()
+    if not u:
+        cur.close(); conn.close()
+        return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "Пользователь не найден"})}
+
+    return issue_session(conn, cur, u[0], u[1], u[2], u[3], u[4])
+
+
+def resend_code(event):
+    """Высылает новый одноразовый код на привязанную почту."""
+    body = json.loads(event.get("body") or "{}")
+    user_id = body.get("user_id")
+    if not user_id:
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Нет пользователя"})}
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COALESCE(twofa_email,'') FROM users WHERE id=%s", (int(user_id),))
+    row = cur.fetchone()
+    if not row or not row[0]:
+        cur.close(); conn.close()
+        return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "Почта для кода не настроена"})}
+
+    cur.execute("UPDATE login_codes SET used=TRUE WHERE user_id=%s AND used=FALSE", (int(user_id),))
+    code = f"{secrets.randbelow(1000000):06d}"
+    cur.execute(
+        "INSERT INTO login_codes (user_id, code, purpose, expires_at) VALUES (%s,%s,'login',NOW() + INTERVAL '10 minutes')",
+        (int(user_id), code)
+    )
+    conn.commit()
+    cur.close(); conn.close()
+    send_code_email(row[0], code, "вход в панель администратора")
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "hint": mask_email(row[0])})}

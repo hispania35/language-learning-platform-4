@@ -65,7 +65,7 @@ def handler(event: dict, context) -> dict:
 
 def get_homework(conn, user_id, role):
     cur = conn.cursor()
-    if role == "teacher":
+    if role in ("teacher", "admin"):
         cur.execute(
             """SELECT h.id, h.title, h.description, h.subject,
                       h.due_date, h.status, h.grade, h.teacher_comment,
@@ -102,7 +102,7 @@ def get_homework(conn, user_id, role):
 
 
 def create_homework(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return {"statusCode": 403, "headers": CORS, "body": json.dumps({"error": "Только преподаватель может создавать задания"})}
 
@@ -162,7 +162,7 @@ def update_homework(event, conn, user_id, role):
                 "INSERT INTO notifications (user_id, text, type) VALUES (%s, %s, 'homework')",
                 (teacher_id, f"Студент сдал задание на проверку: {hw_title}")
             )
-    elif role == "teacher" and teacher_id == user_id:
+    elif role in ("teacher", "admin") and teacher_id == user_id:
         grade = body.get("grade")
         comment = body.get("teacher_comment")
         status = body.get("status", "done")

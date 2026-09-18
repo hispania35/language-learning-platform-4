@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { type Page } from "@/App";
 import { type User } from "@/pages/LoginPage";
+import { useSettings } from "@/hooks/useSettings";
 import Icon from "@/components/ui/icon";
 import {
   apiGetCalendar, apiGetHomework, apiGetMaterials, apiGetLeaderboard, apiGetChatContacts,
@@ -66,7 +67,8 @@ const chatTime = (iso?: string | null) => {
 };
 
 export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardProps) {
-  const isTeacher = user.role === "teacher";
+  const isTeacher = user.role === "teacher" || user.role === "admin";
+  const { settings } = useSettings();
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [homework, setHomework] = useState<HomeworkItem[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -141,10 +143,11 @@ export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardPro
 
   const monthLabel = new Date().toLocaleDateString("ru-RU", { month: "long", year: "numeric" });
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-6">
+  const blockPrefs = settings.home_blocks;
+  const isOn = (id: string) => blockPrefs.find(b => b.id === id)?.on !== false;
 
-      {/* Welcome */}
+  const blockNodes: Record<string, JSX.Element> = {
+    welcome: (
       <div className="red-accent rounded-2xl p-6 text-white relative overflow-hidden">
         <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4" />
         <div className="absolute bottom-0 left-1/3 w-32 h-32 bg-white/5 rounded-full translate-y-1/2" />
@@ -167,8 +170,8 @@ export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardPro
           </div>
         </div>
       </div>
-
-      {/* Stats */}
+    ),
+    stats: (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {stats.map((s, i) => (
           <button key={i} onClick={() => onNavigate(s.page)}
@@ -184,11 +187,9 @@ export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardPro
           </button>
         ))}
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-
-        {/* Upcoming lessons */}
-        <div className="lg:col-span-2 bg-card rounded-xl border border-border overflow-hidden">
+    ),
+    lessons: (
+        <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <h3 className="font-montserrat font-bold text-sm text-foreground">Ближайшие занятия</h3>
             <button onClick={() => onNavigate("calendar")} className="text-primary text-xs font-medium hover:underline">Весь календарь →</button>
@@ -241,8 +242,8 @@ export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardPro
             })}
           </div>
         </div>
-
-        {/* Homework quick */}
+    ),
+    homework: (
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <h3 className="font-montserrat font-bold text-sm text-foreground">Домашние задания</h3>
@@ -283,11 +284,8 @@ export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardPro
             })}
           </div>
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-
-        {/* Materials */}
+    ),
+    materials: (
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <h3 className="font-montserrat font-bold text-sm text-foreground">Новые материалы</h3>
@@ -335,8 +333,8 @@ export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardPro
             ))}
           </div>
         </div>
-
-        {/* Leaderboard */}
+    ),
+    leaderboard: (
         <div className="bg-card rounded-xl border border-border overflow-hidden">
           <div className="flex items-center justify-between px-5 py-4 border-b border-border">
             <h3 className="font-montserrat font-bold text-sm text-foreground">Рейтинг группы</h3>
@@ -382,9 +380,8 @@ export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardPro
             })}
           </div>
         </div>
-      </div>
-
-      {/* Chat */}
+    ),
+    chat: (
       <div className="bg-card rounded-xl border border-border overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div className="flex items-center gap-2">
@@ -450,6 +447,24 @@ export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardPro
           ))}
         </div>
       </div>
+    ),
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-5">
+      {blockPrefs.filter(b => isOn(b.id)).map(b => (
+        <div key={b.id}>{blockNodes[b.id]}</div>
+      ))}
+      {!blockPrefs.some(b => isOn(b.id)) && (
+        <div className="bg-card border border-border rounded-xl px-5 py-12 text-center">
+          <Icon name="LayoutDashboard" size={32} className="text-muted-foreground/40 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground font-ibm">Все блоки главной скрыты в настройках</p>
+          <button onClick={() => onNavigate("settings")}
+            className="mt-3 px-4 py-2 red-accent text-white rounded-lg text-xs font-montserrat font-bold hover:opacity-90">
+            Открыть настройки
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -91,7 +91,7 @@ const Attachment = memo(function Attachment({ m }: { m: ChatMessage }) {
 }, (a, b) => a.m.id === b.m.id && a.m.file_type === b.m.file_type);
 
 export default function ChatPage({ user, preselect, panel }: { user: User; preselect?: number[] | null; panel?: boolean }) {
-  const isTeacher = user.role === "teacher";
+  const isTeacher = (user.role === "teacher" || user.role === "admin");
   const { refresh } = useChatAlerts();
   const [contacts, setContacts] = useState<ChatContact[]>([]);
   const [groups, setGroups] = useState<ChatGroup[]>([]);

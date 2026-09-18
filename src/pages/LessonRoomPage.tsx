@@ -87,7 +87,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
   const startLesson = (lesson?: Lesson) => {
     setRoom(buildRoomName(lesson));
     setTimeout(() => frameRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
-    if (lesson && user.role === "teacher") {
+    if (lesson && (user.role === "teacher" || user.role === "admin")) {
       setNotice("Отправляю приглашения ученикам...");
       const p = getPlatform();
       const extLink = p === "webrtc"
@@ -194,7 +194,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
               <WebRTCRoom
                 room={room}
                 userName={user.name}
-                isTeacher={user.role === "teacher"}
+                isTeacher={(user.role === "teacher" || user.role === "admin")}
                 lesson={activeLesson}
               />
             ) : getPlatform() === "jitsi" ? (

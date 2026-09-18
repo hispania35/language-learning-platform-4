@@ -15,6 +15,7 @@ const pageTitles: Record<Page, string> = {
   students: "Ученики и группы",
   chat: "Чат",
   profile: "Мой профиль",
+  settings: "Настройки",
 };
 
 interface TopBarProps {
@@ -294,7 +295,7 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
           </div>
           <div className="hidden md:block text-left">
             <p className="text-xs font-montserrat font-bold text-foreground leading-none">{user.name.split(" ")[0]}</p>
-            <p className="text-xs text-muted-foreground font-ibm">{user.role === "teacher" ? "Преподаватель" : "Студент"}</p>
+            <p className="text-xs text-muted-foreground font-ibm">{(user.role === "teacher" || user.role === "admin") ? "Преподаватель" : "Студент"}</p>
           </div>
           <Icon name="ChevronDown" size={14} className="text-muted-foreground hidden md:block" />
         </button>
@@ -303,7 +304,7 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
           <div className="absolute right-0 top-12 w-52 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden animate-scale-in">
             <div className="px-4 py-3 border-b border-border">
               <p className="font-montserrat font-bold text-sm text-foreground">{user.name}</p>
-              <p className="text-xs text-muted-foreground font-ibm">{user.role === "teacher" ? "Преподаватель" : `Студент · ${user.level}`}</p>
+              <p className="text-xs text-muted-foreground font-ibm">{(user.role === "teacher" || user.role === "admin") ? "Преподаватель" : `Студент · ${user.level}`}</p>
             </div>
             <div className="py-1">
               <button
@@ -314,7 +315,7 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
                 Мой профиль
               </button>
               <button
-                onClick={() => { setShowSettings(true); setShowUserMenu(false); setSettingsError(""); setSettingsSuccess(""); }}
+                onClick={() => { onNavigate("settings"); setShowUserMenu(false); }}
                 className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-muted transition-colors font-ibm"
               >
                 <Icon name="Settings" size={16} className="text-muted-foreground" />

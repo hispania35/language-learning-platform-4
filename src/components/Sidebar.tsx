@@ -36,8 +36,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ activePage, onNavigate, isOpen, onClose, user, onOpenSettings }: SidebarProps) {
-  const navItems = user.role === "teacher" ? teacherNav : studentNav;
-  const isTeacher = user.role === "teacher";
+  const navItems = user.role === "teacher" || user.role === "admin" ? teacherNav : studentNav;
+  const isTeacher = user.role === "teacher" || user.role === "admin";
   const { unread, soundOn, setSoundOn, inLesson } = useChatAlerts();
 
   return (

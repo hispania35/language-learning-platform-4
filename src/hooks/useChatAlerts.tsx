@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext, type ReactNode } from "react";
 import { apiChatPing, type UnreadMessage } from "@/lib/api";
+import { useSettings } from "@/hooks/useSettings";
 
 interface Toast { id: number; name: string; preview: string }
 
@@ -46,15 +47,14 @@ function playBeep() {
 export function ChatAlertsProvider({ children, enabled }: { children: ReactNode; enabled: boolean }) {
   const [unread, setUnread] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [soundOn, setSoundOnState] = useState(() => localStorage.getItem("hispania_chat_sound") !== "off");
+  const { settings, update } = useSettings();
+  const soundOn = settings.notify_chat_sound !== false;
+  const toastOn = settings.notify_chat_toast !== false;
   const [inLesson, setInLesson] = useState(false);
   const seenRef = useRef<Set<number>>(new Set());
   const firstRef = useRef(true);
 
-  const setSoundOn = (v: boolean) => {
-    setSoundOnState(v);
-    localStorage.setItem("hispania_chat_sound", v ? "on" : "off");
-  };
+  const setSoundOn = (v: boolean) => { update({ notify_chat_sound: v }); };
 
   const dismiss = useCallback((id: number) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -73,11 +73,12 @@ export function ChatAlertsProvider({ children, enabled }: { children: ReactNode;
       if (!fresh.length) return;
 
       if (soundOn && !inLesson) playBeep();
+      if (!toastOn) return;
       const newToasts = fresh.slice(0, 3).map(m => ({ id: m.id, name: m.from_name, preview: m.preview }));
       setToasts(prev => [...newToasts, ...prev].slice(0, 4));
       newToasts.forEach(t => setTimeout(() => dismiss(t.id), 7000));
     } catch { /* сеть недоступна */ }
-  }, [enabled, soundOn, inLesson, dismiss]);
+  }, [enabled, soundOn, toastOn, inLesson, dismiss]);
 
   useEffect(() => {
     if (!enabled) return;

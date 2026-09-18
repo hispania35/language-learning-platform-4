@@ -18,7 +18,7 @@ type Mode =
   | { kind: "play"; exercise: Exercise };
 
 export default function ExercisesPage({ user }: Props) {
-  const isTeacher = user.role === "teacher";
+  const isTeacher = (user.role === "teacher" || user.role === "admin");
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [aiReady, setAiReady] = useState(false);
   const [loading, setLoading] = useState(true);

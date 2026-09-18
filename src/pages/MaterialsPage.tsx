@@ -162,7 +162,7 @@ export default function MaterialsPage({ user }: { user: User }) {
       </div>
 
       {section === "library" ? (
-        <LibraryPanel isTeacher={user.role === "teacher"} />
+        <LibraryPanel isTeacher={(user.role === "teacher" || user.role === "admin")} />
       ) : (
       <>
       <div className="flex flex-col sm:flex-row gap-3">
@@ -172,7 +172,7 @@ export default function MaterialsPage({ user }: { user: User }) {
             onChange={e => setSearch(e.target.value)}
             className="bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none w-full font-ibm" />
         </div>
-        {user.role === "teacher" && (
+        {(user.role === "teacher" || user.role === "admin") && (
           <button onClick={() => setShowAdd(!showAdd)}
             className="flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-xl text-sm font-montserrat font-medium hover:bg-primary/90 transition-colors flex-shrink-0">
             <Icon name="Plus" size={16} />
@@ -326,7 +326,7 @@ export default function MaterialsPage({ user }: { user: User }) {
                       <Icon name="FileX" size={15} className="text-muted-foreground/50" />
                     </span>
                   )}
-                  {user.role === "teacher" && (
+                  {(user.role === "teacher" || user.role === "admin") && (
                     <>
                       <button onClick={() => setAssignFor(m)} title="Кому выдать материал"
                         className="p-1.5 rounded-lg hover:bg-muted transition-colors">

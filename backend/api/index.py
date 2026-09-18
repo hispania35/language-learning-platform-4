@@ -262,6 +262,22 @@ def handler(event: dict, context) -> dict:
         if path == "leaderboard" and method == "GET":
             return get_leaderboard(conn)
 
+        # --- Settings ---
+        if path == "settings" and method == "GET":
+            return get_settings(conn, user_id, role)
+        if path == "settings" and method == "POST":
+            return save_settings(event, conn, user_id)
+
+        # --- Slots ---
+        if path == "slots" and method == "GET":
+            return get_slots(event, conn, user_id, role)
+        if path == "slots" and method == "POST":
+            return create_slots(event, conn, user_id, role)
+        if path == "slots" and method == "DELETE":
+            return delete_slot(event, conn, user_id, role)
+        if path == "slot_book" and method == "POST":
+            return book_slot(event, conn, user_id, role)
+
         conn.close()
         return resp(404, {"error": "Not found"})
     except Exception as e:
@@ -309,7 +325,7 @@ def lib_signed_get(key, file_name=None):
 
 def material_upload_url(event, conn, role):
     """Выдать браузеру одноразовую ссылку, чтобы загрузить файл материала прямо в облако."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     if not lib_storage_ready():
@@ -340,7 +356,7 @@ def material_upload_url(event, conn, role):
 
 def delete_material(event, conn, user_id, role):
     """Удалить материал вместе с файлом в облаке."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     params = event.get("queryStringParameters") or {}
@@ -364,7 +380,7 @@ def delete_material(event, conn, user_id, role):
 
 def assign_material(event, conn, user_id, role):
     """Прикрепить материал к ученикам, группе или занятию (полная замена списка)."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -451,7 +467,7 @@ def get_materials(conn, user_id=None, role="teacher"):
             })
 
     # ученик видит только общие материалы и то, что выдано лично или на его занятие
-    if role != "teacher" and user_id:
+    if role not in ("teacher", "admin") and user_id:
         cur.execute("SELECT lesson_id FROM lesson_students WHERE student_id=%s", (user_id,))
         my_lessons = {r[0] for r in cur.fetchall()}
         items = [
@@ -475,7 +491,7 @@ def get_materials(conn, user_id=None, role="teacher"):
                       "storage_ready": ready})
 
 def create_material(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -513,7 +529,7 @@ def create_material(event, conn, user_id, role):
 
 def get_lessons(conn, user_id, role):
     cur = conn.cursor()
-    if role == "teacher":
+    if role in ("teacher", "admin"):
         cur.execute(
             """SELECT l.id, l.title, l.topic, l.lesson_date, l.lesson_time,
                       l.duration_min, l.lesson_type
@@ -556,7 +572,7 @@ def get_lessons(conn, user_id, role):
     return resp(200, {"lessons": result})
 
 def create_lesson(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -607,7 +623,7 @@ def create_lesson(event, conn, user_id, role):
     return resp(200, {"ok": True, "id": lesson_id})
 
 def move_lesson(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -675,7 +691,7 @@ def move_lesson(event, conn, user_id, role):
     return resp(200, {"ok": True})
 
 def delete_lesson(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     params = event.get("queryStringParameters") or {}
@@ -921,7 +937,7 @@ def _send_unread_digests(cur):
 def get_chat_contacts(conn, user_id, role):
     """Список собеседников с последним сообщением и счётчиком непрочитанного."""
     cur = conn.cursor()
-    if role == "teacher":
+    if role in ("teacher", "admin"):
         cur.execute(f"""SELECT id, name, avatar, COALESCE(level,''),
                         (last_seen IS NOT NULL AND last_seen > NOW() - INTERVAL '{ONLINE_SEC} seconds')
                         FROM users WHERE role='student' ORDER BY name""")
@@ -960,7 +976,7 @@ def get_chat_contacts(conn, user_id, role):
                 by_id[pid]["unread"] = cnt
 
     groups = []
-    if role == "teacher":
+    if role in ("teacher", "admin"):
         cur.execute("SELECT id, name, color FROM student_groups WHERE teacher_id=%s ORDER BY name", (user_id,))
         groups = [{"id": r[0], "name": r[1], "color": r[2], "students": []} for r in cur.fetchall()]
         if groups:
@@ -1241,7 +1257,7 @@ def _cancel_html(student_name, topic, date_str, time_str, reason):
     return _wrap("Ученик отменил занятие", lines)
 
 def start_lesson(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -1362,7 +1378,7 @@ def get_students(conn):
     ]})
 
 def update_student(event, conn, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -1413,7 +1429,7 @@ def _group_ids(raw):
     return ids
 
 def get_groups(conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     cur = conn.cursor()
@@ -1438,7 +1454,7 @@ def get_groups(conn, user_id, role):
     return resp(200, {"groups": groups})
 
 def create_group(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -1458,7 +1474,7 @@ def create_group(event, conn, user_id, role):
     return resp(200, {"ok": True, "id": group_id})
 
 def update_group(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -1489,7 +1505,7 @@ def update_group(event, conn, user_id, role):
     return resp(200, {"ok": True})
 
 def remove_group(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     params = event.get("queryStringParameters") or {}
@@ -1526,3 +1542,212 @@ def get_leaderboard(conn):
         {"id": r[0], "name": r[1], "avatar": r[2], "level": r[3], "score": int(r[4] or 0)}
         for r in rows
     ]})
+
+# ── Settings ───────────────────────────────────────────────────────────────────
+
+DEFAULT_SETTINGS = {
+    "home_blocks": [
+        {"id": "welcome", "on": True},
+        {"id": "stats", "on": True},
+        {"id": "lessons", "on": True},
+        {"id": "homework", "on": True},
+        {"id": "leaderboard", "on": True},
+        {"id": "materials", "on": True},
+        {"id": "chat", "on": True},
+    ],
+    "schedule_mode": "assigned",
+    "video_platform": "jitsi",
+    "video_link": "",
+    "notify_chat_sound": True,
+    "notify_chat_toast": True,
+    "notify_chat_email": False,
+}
+
+def _teacher_of(conn, user_id):
+    cur = conn.cursor()
+    cur.execute("SELECT teacher_id FROM users WHERE id=%s", (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    return row[0] if row and row[0] else None
+
+def _raw_settings(conn, uid):
+    cur = conn.cursor()
+    cur.execute("SELECT data FROM app_settings WHERE user_id=%s", (uid,))
+    row = cur.fetchone()
+    cur.close()
+    return dict(row[0]) if row and row[0] else {}
+
+def get_settings(conn, user_id, role):
+    """Настройки пользователя. Ученик наследует платформу урока и режим расписания от преподавателя."""
+    data = dict(DEFAULT_SETTINGS)
+    data.update(_raw_settings(conn, user_id))
+
+    inherited = []
+    if role == "student":
+        tid = _teacher_of(conn, user_id)
+        if tid:
+            tdata = _raw_settings(conn, tid)
+            for key in ("video_platform", "video_link", "schedule_mode"):
+                if key in tdata:
+                    data[key] = tdata[key]
+                    inherited.append(key)
+    conn.close()
+    return resp(200, {"settings": data, "inherited": inherited})
+
+def save_settings(event, conn, user_id):
+    """Сохраняет настройки текущего пользователя."""
+    body = json.loads(event.get("body") or "{}")
+    incoming = body.get("settings")
+    if not isinstance(incoming, dict):
+        conn.close()
+        return resp(400, {"error": "Нет настроек"})
+
+    current = _raw_settings(conn, user_id)
+    current.update(incoming)
+
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO app_settings (user_id, data, updated_at) VALUES (%s, %s, NOW())
+           ON CONFLICT (user_id) DO UPDATE SET data=EXCLUDED.data, updated_at=NOW()""",
+        (user_id, json.dumps(current))
+    )
+    conn.commit()
+    cur.close(); conn.close()
+    return resp(200, {"ok": True, "settings": current})
+
+
+# ── Lesson slots ───────────────────────────────────────────────────────────────
+
+def get_slots(event, conn, user_id, role):
+    """Свободные и занятые окна записи. Ученик видит окна своего преподавателя."""
+    cur = conn.cursor()
+    if role in ("teacher", "admin"):
+        tid = user_id
+    else:
+        tid = _teacher_of(conn, user_id)
+        if not tid:
+            cur.close(); conn.close()
+            return resp(200, {"slots": []})
+
+    cur.execute(
+        """SELECT s.id, s.slot_date, s.slot_time, s.duration_min, s.booked_by,
+                  COALESCE(u.name, '')
+           FROM lesson_slots s LEFT JOIN users u ON u.id=s.booked_by
+           WHERE s.teacher_id=%s AND s.slot_date >= CURRENT_DATE
+           ORDER BY s.slot_date, s.slot_time""",
+        (tid,)
+    )
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return resp(200, {"slots": [
+        {"id": r[0], "date": r[1].isoformat(), "time": str(r[2])[:5],
+         "duration_min": r[3], "booked_by": r[4], "booked_name": r[5],
+         "mine": r[4] == user_id}
+        for r in rows
+    ]})
+
+def create_slots(event, conn, user_id, role):
+    """Преподаватель открывает окна для записи."""
+    if role not in ("teacher", "admin"):
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    body = json.loads(event.get("body") or "{}")
+    items = body.get("slots") or []
+    duration = int(body.get("duration_min") or 60)
+    if not items:
+        conn.close()
+        return resp(400, {"error": "Не выбрано время"})
+
+    cur = conn.cursor()
+    added = 0
+    for it in items:
+        d = (it.get("date") or "").strip()
+        t = (it.get("time") or "").strip()
+        if not d or not t:
+            continue
+        cur.execute(
+            """INSERT INTO lesson_slots (teacher_id, slot_date, slot_time, duration_min)
+               VALUES (%s, %s, %s, %s)
+               ON CONFLICT (teacher_id, slot_date, slot_time) DO NOTHING""",
+            (user_id, d, t, duration)
+        )
+        added += cur.rowcount
+    conn.commit()
+    cur.close(); conn.close()
+    return resp(200, {"ok": True, "added": added})
+
+def delete_slot(event, conn, user_id, role):
+    """Преподаватель закрывает свободное окно."""
+    if role not in ("teacher", "admin"):
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    params = event.get("queryStringParameters") or {}
+    slot_id = params.get("id")
+    if not slot_id:
+        conn.close()
+        return resp(400, {"error": "Нет окна"})
+
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE lesson_slots SET slot_date='1900-01-01' WHERE id=%s AND teacher_id=%s AND booked_by IS NULL",
+        (int(slot_id), user_id)
+    )
+    changed = cur.rowcount
+    conn.commit()
+    cur.close(); conn.close()
+    if not changed:
+        return resp(400, {"error": "Окно занято или не найдено"})
+    return resp(200, {"ok": True})
+
+def book_slot(event, conn, user_id, role):
+    """Ученик записывается на свободное время преподавателя."""
+    if role != "student":
+        conn.close()
+        return resp(403, {"error": "Только ученик"})
+    body = json.loads(event.get("body") or "{}")
+    slot_id = body.get("slot_id")
+    cancel = bool(body.get("cancel"))
+    if not slot_id:
+        conn.close()
+        return resp(400, {"error": "Нет окна"})
+
+    cur = conn.cursor()
+    if cancel:
+        cur.execute(
+            "UPDATE lesson_slots SET booked_by=NULL, booked_at=NULL WHERE id=%s AND booked_by=%s",
+            (int(slot_id), user_id)
+        )
+        conn.commit()
+        cur.close(); conn.close()
+        return resp(200, {"ok": True})
+
+    cur.execute(
+        "UPDATE lesson_slots SET booked_by=%s, booked_at=NOW() WHERE id=%s AND booked_by IS NULL",
+        (user_id, int(slot_id))
+    )
+    if not cur.rowcount:
+        conn.commit()
+        cur.close(); conn.close()
+        return resp(409, {"error": "Это время уже заняли"})
+
+    cur.execute(
+        "SELECT teacher_id, slot_date, slot_time, duration_min FROM lesson_slots WHERE id=%s",
+        (int(slot_id),)
+    )
+    srow = cur.fetchone()
+    lesson_id = None
+    if srow:
+        cur.execute(
+            """INSERT INTO lessons (teacher_id, title, topic, lesson_date, lesson_time, duration_min, lesson_type)
+               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            (srow[0], "Занятие по записи", "Занятие по записи", srow[1], srow[2], srow[3], "Практика")
+        )
+        lesson_id = cur.fetchone()[0]
+        cur.execute(
+            "INSERT INTO lesson_students (lesson_id, student_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (lesson_id, user_id)
+        )
+        cur.execute("UPDATE lesson_slots SET lesson_id=%s WHERE id=%s", (lesson_id, int(slot_id)))
+    conn.commit()
+    cur.close(); conn.close()
+    return resp(200, {"ok": True, "lesson_id": lesson_id})

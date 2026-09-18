@@ -49,7 +49,7 @@ export default function HomeworkPage({ user }: { user: User }) {
   useEffect(() => {
     load();
     loadDecks();
-    if (user.role === "teacher") {
+    if ((user.role === "teacher" || user.role === "admin")) {
       apiGetStudents().then(res => { if (res.students) setStudents(res.students); });
     }
   }, [user.role]);
@@ -105,7 +105,7 @@ export default function HomeworkPage({ user }: { user: User }) {
   return (
     <div className="max-w-4xl mx-auto space-y-5">
       {/* Teacher: create */}
-      {user.role === "teacher" && (
+      {(user.role === "teacher" || user.role === "admin") && (
         <div className="flex flex-wrap gap-2">
           <button onClick={() => setShowAdd(!showAdd)}
             className="flex items-center gap-2 px-4 py-2.5 red-accent text-white rounded-xl text-sm font-montserrat font-medium hover:opacity-90 transition-opacity">
@@ -142,16 +142,16 @@ export default function HomeworkPage({ user }: { user: User }) {
                     <p className="text-sm font-montserrat font-bold text-foreground truncate">{d.title}</p>
                     <p className="text-xs text-muted-foreground font-ibm">
                       {d.lang_from} → {d.lang_to} · {d.cards.length} слов
-                      {user.role === "teacher"
+                      {(user.role === "teacher" || user.role === "admin")
                         ? (d.students.length ? ` · ${d.students.length} учеников` : " · не выдан")
                         : (known ? ` · выучено ${known}` : "")}
                     </p>
                   </button>
                   <button onClick={() => setStudyDeck(d)}
                     className="px-3 py-1.5 rounded-lg red-accent text-white text-xs font-montserrat font-bold hover:opacity-90 flex-shrink-0">
-                    {user.role === "teacher" ? "Открыть" : "Учить"}
+                    {(user.role === "teacher" || user.role === "admin") ? "Открыть" : "Учить"}
                   </button>
-                  {user.role === "teacher" && (
+                  {(user.role === "teacher" || user.role === "admin") && (
                     <button onClick={() => setDelDeck(d)} title="Удалить набор"
                       className="p-1.5 rounded-lg hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                       <Icon name="Trash2" size={14} className="text-red-500" />
@@ -234,7 +234,7 @@ export default function HomeworkPage({ user }: { user: User }) {
                     <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground font-ibm flex-wrap">
                       <span>{hw.subject}</span>
                       {hw.due_date && <><span>·</span><span>до {formatDate(hw.due_date)}</span></>}
-                      {user.role === "teacher" && hw.student_name && <><span>·</span><span>{hw.student_name}</span></>}
+                      {(user.role === "teacher" || user.role === "admin") && hw.student_name && <><span>·</span><span>{hw.student_name}</span></>}
                       {hw.grade && <span className="text-primary font-bold">· Оценка: {hw.grade}/5</span>}
                     </div>
                   </div>
@@ -293,7 +293,7 @@ export default function HomeworkPage({ user }: { user: User }) {
                     )}
 
                     {/* Teacher grading */}
-                    {user.role === "teacher" && hw.status === "review" && !hw.grade && (
+                    {(user.role === "teacher" || user.role === "admin") && hw.status === "review" && !hw.grade && (
                       <div className="mt-4 space-y-2">
                         <p className="text-xs font-montserrat font-bold text-muted-foreground">Поставить оценку</p>
                         <div className="flex gap-2">
@@ -334,7 +334,7 @@ export default function HomeworkPage({ user }: { user: User }) {
       )}
 
       {studyDeck && (
-        <DeckStudyDialog deck={studyDeck} isTeacher={user.role === "teacher"}
+        <DeckStudyDialog deck={studyDeck} isTeacher={(user.role === "teacher" || user.role === "admin")}
           onClose={() => { setStudyDeck(null); loadDecks(); }} />
       )}
 

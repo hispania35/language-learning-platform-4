@@ -27,7 +27,7 @@ const achievements = [
 ];
 
 export default function ProfilePage({ user }: { user: User }) {
-  const tabs = user.role === "teacher" ? [...profileTabs, "Сброс паролей"] : profileTabs;
+  const tabs = (user.role === "teacher" || user.role === "admin") ? [...profileTabs, "Сброс паролей"] : profileTabs;
   const [activeTab, setActiveTab] = useState("Профиль");
 
   const [resets, setResets] = useState<PasswordReset[]>([]);
@@ -36,7 +36,7 @@ export default function ProfilePage({ user }: { user: User }) {
   const [resetMsg, setResetMsg] = useState<Record<number, string>>({});
 
   useEffect(() => {
-    if (activeTab === "Сброс паролей" && user.role === "teacher") {
+    if (activeTab === "Сброс паролей" && (user.role === "teacher" || user.role === "admin")) {
       setResetsLoading(true);
       apiResetList().then(res => {
         if (res.resets) setResets(res.resets);
@@ -72,7 +72,7 @@ export default function ProfilePage({ user }: { user: User }) {
             <div className="flex-1">
               <h2 className="font-montserrat font-black text-xl text-foreground">{user.name}</h2>
               <p className="text-muted-foreground text-sm font-ibm">
-                {user.role === "teacher" ? "Преподаватель" : "Студент"} · Испанский язык
+                {(user.role === "teacher" || user.role === "admin") ? "Преподаватель" : "Студент"} · Испанский язык
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -116,7 +116,7 @@ export default function ProfilePage({ user }: { user: User }) {
       {/* Tab content */}
       {activeTab === "Профиль" && (
         <div className="space-y-5">
-          <ProfileEditor isTeacher={user.role === "teacher"} />
+          <ProfileEditor isTeacher={(user.role === "teacher" || user.role === "admin")} />
 
           {user.role !== "teacher" && (
             <div className="bg-card rounded-xl border border-border p-5 animate-fade-in">
@@ -252,7 +252,7 @@ export default function ProfilePage({ user }: { user: User }) {
       )}
 
 
-      {activeTab === "Сброс паролей" && user.role === "teacher" && (
+      {activeTab === "Сброс паролей" && (user.role === "teacher" || user.role === "admin") && (
         <div className="animate-fade-in space-y-4">
           <div className="bg-card rounded-xl border border-border overflow-hidden">
             <div className="px-5 py-4 border-b border-border flex items-center gap-2">

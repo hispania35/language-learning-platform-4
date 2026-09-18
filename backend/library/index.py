@@ -147,7 +147,7 @@ def handler(event: dict, context) -> dict:
             return del_subject(event, conn, user_id, role)
         if method == "POST" and action == "setup_cors":
             conn.close()
-            if role != "teacher":
+            if role not in ("teacher", "admin"):
                 return resp(403, {"error": "Только преподаватель"})
             ext_client().put_bucket_cors(
                 Bucket=os.environ["LIB_S3_BUCKET"],
@@ -177,7 +177,7 @@ def handler(event: dict, context) -> dict:
 
 def list_items(conn, user_id, role):
     cur = conn.cursor()
-    if role == "teacher":
+    if role in ("teacher", "admin"):
         cur.execute(
             """SELECT id, title, author, description, kind, file_url, file_name,
                       mime, size_bytes, duration_sec, created_at, file_key, storage, subject_id
@@ -196,7 +196,7 @@ def list_items(conn, user_id, role):
     cols = [d[0] for d in cur.description]
     items = [dict(zip(cols, r)) for r in rows]
 
-    if role == "teacher" and items:
+    if role in ("teacher", "admin") and items:
         ids = ",".join(str(i["id"]) for i in items)
         by_id = {i["id"]: i for i in items}
         for it in items:
@@ -219,7 +219,7 @@ def list_items(conn, user_id, role):
         it.pop("file_key", None)
         it.pop("storage", None)
 
-    if role == "teacher":
+    if role in ("teacher", "admin"):
         cur.execute("SELECT id, name, color, parent_id FROM library_subjects WHERE teacher_id=%s ORDER BY name",
                     (user_id,))
     else:
@@ -245,7 +245,7 @@ def list_items(conn, user_id, role):
 
 def add_subject(event, conn, user_id, role):
     """Добавить предмет (язык) или каталог внутри предмета."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -301,7 +301,7 @@ def add_subject(event, conn, user_id, role):
 
 def rename_subject(event, conn, user_id, role):
     """Переименовать предмет или каталог, при желании сменить цвет."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -352,7 +352,7 @@ def rename_subject(event, conn, user_id, role):
 
 def del_subject(event, conn, user_id, role):
     """Удалить предмет вместе с его каталогами. Файлы остаются, но теряют привязку."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -383,7 +383,7 @@ def del_subject(event, conn, user_id, role):
 
 def upload_url(event, conn, user_id, role):
     """Выдать браузеру одноразовую ссылку для загрузки большого файла прямо в облако."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     if not ext_storage_ready():
@@ -411,7 +411,7 @@ def upload_url(event, conn, user_id, role):
 
 def confirm_upload(event, conn, user_id, role):
     """Создать карточку книги после успешной загрузки файла в облако."""
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -448,7 +448,7 @@ def confirm_upload(event, conn, user_id, role):
 
 
 def upload_item(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
@@ -493,7 +493,7 @@ def upload_item(event, conn, user_id, role):
 
 
 def delete_item(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     params = event.get("queryStringParameters") or {}
@@ -534,7 +534,7 @@ def delete_item(event, conn, user_id, role):
 
 
 def assign_item(event, conn, user_id, role):
-    if role != "teacher":
+    if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
