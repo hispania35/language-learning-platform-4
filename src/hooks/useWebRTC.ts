@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { apiRtcPoll, apiRtcSend, apiRtcLeave, apiRtcIce, type RtcPeer } from "@/lib/api";
+import { apiRtcPoll, apiRtcSend, apiRtcLeave, type RtcPeer } from "@/lib/api";
 import { createBackgroundFx, type BgMode, type FxHandle } from "@/lib/backgroundFx";
 import { videoConstraint, audioConstraint, applySink, setCamId, setMicId, setSpkId } from "@/lib/mediaPrefs";
 
@@ -75,7 +75,6 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
   const hasRemoteRef = useRef(false);
   const restartsRef = useRef(0);
   const statsRef = useRef({ lost: 0, recv: 0, bytes: 0, at: 0 });
-  const iceCfgRef = useRef<RTCConfiguration>(ICE_SERVERS);
   const tierRef = useRef<VideoTier>("high");
   const streakRef = useRef({ bad: 0, good: 0 });
   const autoTierRef = useRef(true);
@@ -86,7 +85,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
 
   const createPeer = useCallback(() => {
     if (pcRef.current) return pcRef.current;
-    const pc = new RTCPeerConnection(iceCfgRef.current);
+    const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
     streamRef.current?.getTracks().forEach(t => pc.addTrack(t, streamRef.current!));
@@ -122,20 +121,18 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
         return;
       }
       if (st === "failed") {
-        if (restartsRef.current < 4) {
+        if (restartsRef.current < 3) {
           restartsRef.current += 1;
           setStatus("connecting");
           setError("");
           try {
             pc.restartIce();
-            if (!politeRef.current) {
-              await pc.setLocalDescription();
-              send("sdp", pc.localDescription);
-            }
+            await pc.setLocalDescription();
+            send("sdp", pc.localDescription);
           } catch { /* ok */ }
         } else {
           setStatus("failed");
-          setError("Связь не устанавливается. На мобильном интернете попробуйте Wi-Fi или выключите видео");
+          setError("Связь не устанавливается. Проверьте интернет и попробуйте ещё раз");
         }
         return;
       }
@@ -231,16 +228,6 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     };
 
     const start = async () => {
-      try {
-        const ice = await Promise.race([
-          apiRtcIce(),
-          new Promise<null>(r => setTimeout(() => r(null), 3000)),
-        ]);
-        if (ice?.ice_servers?.length) {
-          iceCfgRef.current = { iceServers: ice.ice_servers, iceCandidatePoolSize: 4 };
-        }
-      } catch { /* останутся серверы по умолчанию */ }
-
       const stream = await grabMedia();
       if (stopRef.current) { stream?.getTracks().forEach(t => t.stop()); return; }
 
@@ -290,17 +277,6 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
             setStatus("waiting");
           } else if (!pcRef.current && !politeRef.current) {
             createPeer();
-          } else if (
-            pcRef.current &&
-            !politeRef.current &&
-            !hasRemoteRef.current &&
-            pcRef.current.signalingState === "stable" &&
-            pcRef.current.connectionState !== "connected"
-          ) {
-            try {
-              await pcRef.current.setLocalDescription();
-              send("sdp", pcRef.current.localDescription);
-            } catch { /* ok */ }
           }
         }
         if (res.last_id) sinceRef.current = res.last_id;
@@ -323,11 +299,6 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
       pcRef.current = null;
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
-      hasRemoteRef.current = false;
-      pendingIceRef.current = [];
-      restartsRef.current = 0;
-      tierRef.current = "high";
-      autoTierRef.current = true;
       setStatus("idle");
       setPeers([]);
     };

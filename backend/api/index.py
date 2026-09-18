@@ -70,43 +70,6 @@ def link_students(cur, lesson_id, student_ids):
     values = ",".join(cur.mogrify("(%s,%s)", (lesson_id, sid)).decode() for sid in ids)
     cur.execute(f"INSERT INTO lesson_students (lesson_id, student_id) VALUES {values}")
 
-def rtc_ice(conn):
-    """Список серверов для пробивания сети: STUN + TURN (ретранслятор)."""
-    conn.close()
-    servers = [
-        {"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]},
-    ]
-
-    host = (os.environ.get("TURN_HOST") or "").strip()
-    user = (os.environ.get("TURN_USER") or "").strip()
-    pwd = (os.environ.get("TURN_PASSWORD") or "").strip()
-
-    if host and user and pwd:
-        base = host.split("://")[-1].rstrip("/")
-        hostname = base.split(":")[0]
-        servers.append({
-            "urls": [
-                f"turn:{hostname}:3478?transport=udp",
-                f"turn:{hostname}:3478?transport=tcp",
-                f"turns:{hostname}:5349?transport=tcp",
-            ],
-            "username": user,
-            "credential": pwd,
-        })
-        return resp(200, {"ice_servers": servers, "turn": True})
-
-    servers.append({
-        "urls": [
-            "turn:openrelay.metered.ca:80",
-            "turn:openrelay.metered.ca:443",
-            "turn:openrelay.metered.ca:443?transport=tcp",
-        ],
-        "username": "openrelayproject",
-        "credential": "openrelayproject",
-    })
-    return resp(200, {"ice_servers": servers, "turn": False})
-
-
 def rtc_poll(event, conn, user_id, user_name):
     params = event.get("queryStringParameters") or {}
     room = (params.get("room") or "").strip()[:128]
@@ -284,8 +247,6 @@ def handler(event: dict, context) -> dict:
                 return remove_group(event, conn, user_id, role)
 
         # --- WebRTC signaling ---
-        if path == "rtc_ice" and method == "GET":
-            return rtc_ice(conn)
         if path == "rtc" and method == "GET":
             return rtc_poll(event, conn, user_id, user_name)
         if path == "rtc" and method == "POST":
