@@ -22,6 +22,15 @@ const ICE_SERVERS: RTCConfiguration = {
 };
 
 export type RtcStatus = "idle" | "media" | "connecting" | "waiting" | "connected" | "failed";
+export type NetQuality = "unknown" | "good" | "ok" | "poor";
+
+export interface NetInfo {
+  quality: NetQuality;
+  rtt: number;
+  loss: number;
+  kbps: number;
+  relayed: boolean;
+}
 
 interface Options {
   room: string;
@@ -39,6 +48,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
   const [sharing, setSharing] = useState(false);
   const [bgMode, setBgModeState] = useState<BgMode>("none");
   const [bgLoading, setBgLoading] = useState(false);
+  const [net, setNet] = useState<NetInfo>({ quality: "unknown", rtt: 0, loss: 0, kbps: 0, relayed: false });
 
   const localRef = useRef<HTMLVideoElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
@@ -55,6 +65,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
   const hasRemoteRef = useRef(false);
   const restartsRef = useRef(0);
+  const statsRef = useRef({ lost: 0, recv: 0, bytes: 0, at: 0 });
 
   const send = useCallback((kind: string, payload: unknown) => {
     apiRtcSend(room, kind, payload).catch(() => {});
@@ -281,6 +292,67 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     };
   }, [room, enabled, createPeer, handleSignal, startMuted, startCamOff]);
 
+  useEffect(() => {
+    if (!enabled || status !== "connected") {
+      if (status !== "connected") setNet(n => (n.quality === "unknown" ? n : { ...n, quality: "unknown" }));
+      return;
+    }
+
+    const tick = async () => {
+      const pc = pcRef.current;
+      if (!pc) return;
+      let stats: RTCStatsReport;
+      try { stats = await pc.getStats(); } catch { return; }
+
+      let rtt = 0;
+      let relayed = false;
+      let lost = 0;
+      let recv = 0;
+      let bytes = 0;
+      let jitter = 0;
+
+      stats.forEach(r => {
+        const rep = r as unknown as Record<string, number | string>;
+        if (rep.type === "candidate-pair" && rep.state === "succeeded") {
+          if (typeof rep.currentRoundTripTime === "number") rtt = Math.round(rep.currentRoundTripTime * 1000);
+        }
+        if (rep.type === "local-candidate" && rep.candidateType === "relay") relayed = true;
+        if (rep.type === "remote-candidate" && rep.candidateType === "relay") relayed = true;
+        if (rep.type === "inbound-rtp" && rep.kind === "video") {
+          lost = Number(rep.packetsLost || 0);
+          recv = Number(rep.packetsReceived || 0);
+          bytes = Number(rep.bytesReceived || 0);
+          jitter = Number(rep.jitter || 0) * 1000;
+        }
+      });
+
+      const prev = statsRef.current;
+      const now = Date.now();
+      const dLost = Math.max(0, lost - prev.lost);
+      const dRecv = Math.max(0, recv - prev.recv);
+      const dBytes = Math.max(0, bytes - prev.bytes);
+      const dt = prev.at ? (now - prev.at) / 1000 : 0;
+      statsRef.current = { lost, recv, bytes, at: now };
+
+      const loss = dRecv + dLost > 0 ? Math.round((dLost / (dRecv + dLost)) * 100) : 0;
+      const kbps = dt > 0 ? Math.round((dBytes * 8) / dt / 1000) : 0;
+
+      let quality: NetQuality = "good";
+      if (loss > 8 || rtt > 400 || jitter > 60 || (dt > 0 && kbps < 60 && dRecv > 0)) quality = "poor";
+      else if (loss > 3 || rtt > 220 || jitter > 30 || (dt > 0 && kbps < 180 && dRecv > 0)) quality = "ok";
+
+      if (!prev.at) quality = "good";
+      setNet({ quality, rtt, loss, kbps, relayed });
+    };
+
+    const id = setInterval(tick, 3000);
+    tick();
+    return () => {
+      clearInterval(id);
+      statsRef.current = { lost: 0, recv: 0, bytes: 0, at: 0 };
+    };
+  }, [enabled, status]);
+
   const toggleMic = () => {
     const track = streamRef.current?.getAudioTracks()[0];
     if (!track) return;
@@ -419,7 +491,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
   };
 
   return {
-    localRef, remoteRef, status, peers, error,
+    localRef, remoteRef, status, peers, error, net,
     micOn, camOn, sharing, bgMode, bgLoading,
     toggleMic, toggleCam, toggleShare, setBackground,
     switchCamera, switchMic, switchSpeaker,

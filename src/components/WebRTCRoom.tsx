@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import useWebRTC from "@/hooks/useWebRTC";
 import DeviceCheck from "@/components/DeviceCheck";
 import RoomDevicePanel from "@/components/RoomDevicePanel";
+import NetBadge from "@/components/NetBadge";
 
 const BACKGROUNDS = [
   { name: "Кабинет", url: "https://cdn.poehali.dev/projects/c493c9c0-36da-4678-9f91-8e2c04f4bfe4/files/681530bc-9c65-4d8e-b4e1-ea319efad35d.jpg" },
@@ -21,7 +22,7 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
   const [startOpts, setStartOpts] = useState<{ micOn: boolean; camOn: boolean }>({ micOn: true, camOn: true });
 
   const {
-    localRef, remoteRef, status, error,
+    localRef, remoteRef, status, error, net,
     micOn, camOn, sharing, bgMode, bgLoading,
     toggleMic, toggleCam, toggleShare, setBackground, remoteCount,
     switchCamera, switchMic, switchSpeaker,
@@ -110,6 +111,12 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
           <span className={`w-2 h-2 rounded-full ${status === "connected" ? "bg-green-500" : "bg-amber-400"} animate-pulse`} />
           <span className="text-[11px] font-ibm text-white">{statusText}</span>
         </div>
+
+        {status === "connected" && (
+          <div className="absolute top-3 right-3">
+            <NetBadge net={net} />
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-center gap-2 py-3 px-2 bg-neutral-950">
