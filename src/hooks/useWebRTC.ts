@@ -122,14 +122,16 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
         return;
       }
       if (st === "failed") {
-        if (restartsRef.current < 6) {
+        if (restartsRef.current < 4) {
           restartsRef.current += 1;
           setStatus("connecting");
           setError("");
           try {
             pc.restartIce();
-            await pc.setLocalDescription();
-            send("sdp", pc.localDescription);
+            if (!politeRef.current) {
+              await pc.setLocalDescription();
+              send("sdp", pc.localDescription);
+            }
           } catch { /* ok */ }
         } else {
           setStatus("failed");
@@ -230,8 +232,11 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
 
     const start = async () => {
       try {
-        const ice = await apiRtcIce();
-        if (ice.ice_servers?.length) {
+        const ice = await Promise.race([
+          apiRtcIce(),
+          new Promise<null>(r => setTimeout(() => r(null), 3000)),
+        ]);
+        if (ice?.ice_servers?.length) {
           iceCfgRef.current = { iceServers: ice.ice_servers, iceCandidatePoolSize: 4 };
         }
       } catch { /* останутся серверы по умолчанию */ }
@@ -285,6 +290,17 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
             setStatus("waiting");
           } else if (!pcRef.current && !politeRef.current) {
             createPeer();
+          } else if (
+            pcRef.current &&
+            !politeRef.current &&
+            !hasRemoteRef.current &&
+            pcRef.current.signalingState === "stable" &&
+            pcRef.current.connectionState !== "connected"
+          ) {
+            try {
+              await pcRef.current.setLocalDescription();
+              send("sdp", pcRef.current.localDescription);
+            } catch { /* ok */ }
           }
         }
         if (res.last_id) sinceRef.current = res.last_id;
@@ -307,6 +323,11 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
       pcRef.current = null;
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
+      hasRemoteRef.current = false;
+      pendingIceRef.current = [];
+      restartsRef.current = 0;
+      tierRef.current = "high";
+      autoTierRef.current = true;
       setStatus("idle");
       setPeers([]);
     };
