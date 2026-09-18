@@ -103,6 +103,8 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     };
 
     pc.onnegotiationneeded = async () => {
+      if (politeRef.current && !hasRemoteRef.current) return;
+      if (pc.signalingState !== "stable") return;
       try {
         makingOfferRef.current = true;
         await pc.setLocalDescription();
@@ -127,8 +129,10 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
           setError("");
           try {
             pc.restartIce();
-            await pc.setLocalDescription();
-            send("sdp", pc.localDescription);
+            if (!politeRef.current) {
+              await pc.setLocalDescription();
+              send("sdp", pc.localDescription);
+            }
           } catch { /* ok */ }
         } else {
           setStatus("failed");
@@ -144,6 +148,13 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
 
   const handleSignal = useCallback(async (kind: string, raw: string) => {
     const pc = createPeer();
+
+    if (streamRef.current && pc.getSenders().filter(x => x.track).length === 0) {
+      streamRef.current.getTracks().forEach(t => {
+        try { pc.addTrack(t, streamRef.current!); } catch { /* уже добавлен */ }
+      });
+    }
+
     let data: unknown;
     try { data = JSON.parse(raw); } catch { return; }
 

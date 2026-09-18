@@ -88,6 +88,10 @@ def rtc_poll(event, conn, user_id, user_name):
            ON CONFLICT (room, user_id) DO UPDATE SET last_seen=NOW(), user_name=EXCLUDED.user_name""",
         (room, user_id, user_name)
     )
+    if since == 0:
+        cur.execute("SELECT COALESCE(MAX(id), 0) FROM rtc_signals WHERE room=%s", (room,))
+        since = cur.fetchone()[0]
+
     cur.execute(
         "SELECT id, sender_id, kind, payload FROM rtc_signals WHERE room=%s AND id>%s AND sender_id<>%s ORDER BY id",
         (room, since, user_id)
