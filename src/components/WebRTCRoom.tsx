@@ -4,6 +4,8 @@ import useWebRTC from "@/hooks/useWebRTC";
 import DeviceCheck from "@/components/DeviceCheck";
 import RoomDevicePanel from "@/components/RoomDevicePanel";
 import NetBadge from "@/components/NetBadge";
+import RecordButton from "@/components/RecordButton";
+import { type Lesson } from "@/lib/api";
 
 const BACKGROUNDS = [
   { name: "Кабинет", url: "https://cdn.poehali.dev/projects/c493c9c0-36da-4678-9f91-8e2c04f4bfe4/files/681530bc-9c65-4d8e-b4e1-ea319efad35d.jpg" },
@@ -14,10 +16,12 @@ const BACKGROUNDS = [
 interface Props {
   room: string;
   userName: string;
+  isTeacher?: boolean;
+  lesson?: Lesson;
   onLeave?: () => void;
 }
 
-export default function WebRTCRoom({ room, onLeave }: Props) {
+export default function WebRTCRoom({ room, isTeacher = false, lesson, onLeave }: Props) {
   const [joined, setJoined] = useState(false);
   const [startOpts, setStartOpts] = useState<{ micOn: boolean; camOn: boolean }>({ micOn: true, camOn: true });
 
@@ -26,11 +30,13 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
     micOn, camOn, sharing, bgMode, bgLoading,
     toggleMic, toggleCam, toggleShare, setBackground, remoteCount,
     switchCamera, switchMic, switchSpeaker, tier, setVideoTier,
+    getLocalStream, getRemoteStream,
   } = useWebRTC({ room, enabled: joined, startMuted: !startOpts.micOn, startCamOff: !startOpts.camOn });
 
   const [bgOpen, setBgOpen] = useState(false);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [isFull, setIsFull] = useState(false);
+  const [recording, setRecording] = useState(false);
 
   useEffect(() => {
     const onChange = () => setIsFull(!!document.fullscreenElement);
@@ -118,6 +124,13 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
           </div>
         )}
 
+        {recording && (
+          <div className="absolute bottom-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-600/90 backdrop-blur">
+            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+            <span className="text-[11px] font-montserrat font-bold text-white">Идёт запись</span>
+          </div>
+        )}
+
         {qualityNote && (
           <div key={qualityNote.id}
             className="absolute top-12 right-3 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/70 backdrop-blur border border-white/10 animate-scale-in max-w-[240px]">
@@ -202,6 +215,14 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
             </div>
           )}
         </div>
+
+        <RecordButton
+          getLocalStream={getLocalStream}
+          getRemoteStream={getRemoteStream}
+          isTeacher={isTeacher}
+          onStateChange={setRecording}
+          lesson={lesson}
+        />
 
         <RoomDevicePanel
           onCamera={switchCamera}

@@ -564,6 +564,8 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     micOn, camOn, sharing, bgMode, bgLoading,
     toggleMic, toggleCam, toggleShare, setBackground,
     switchCamera, switchMic, switchSpeaker,
+    getLocalStream: () => streamRef.current,
+    getRemoteStream: () => (remoteRef.current?.srcObject as MediaStream | null) || null,
     remoteCount: peers.filter(p => p.id !== meRef.current).length,
   };
 }

@@ -191,7 +191,12 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
               </button>
             )}
             {getPlatform() === "webrtc" ? (
-              <WebRTCRoom room={room} userName={user.name} />
+              <WebRTCRoom
+                room={room}
+                userName={user.name}
+                isTeacher={user.role === "teacher"}
+                lesson={activeLesson}
+              />
             ) : getPlatform() === "jitsi" ? (
               <iframe
                 src={url}
