@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { apiRtcPoll, apiRtcSend, apiRtcLeave, type RtcPeer } from "@/lib/api";
 import { createBackgroundFx, type BgMode, type FxHandle } from "@/lib/backgroundFx";
-import { videoConstraint, audioConstraint, applySink } from "@/lib/mediaPrefs";
+import { videoConstraint, audioConstraint, applySink, setCamId, setMicId, setSpkId } from "@/lib/mediaPrefs";
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -341,6 +341,65 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     }
   };
 
+  const switchCamera = async (deviceId: string) => {
+    if (sharing) return;
+    setCamId(deviceId);
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      const track = fresh.getVideoTracks()[0];
+      if (!track) return;
+
+      const wasOff = !camOn;
+      rawTrackRef.current?.stop();
+      rawTrackRef.current = track;
+
+      if (fxRef.current) {
+        const mode = bgMode;
+        fxRef.current.stop();
+        fxRef.current = null;
+        setBgModeState("none");
+        await replaceVideoTrack(track);
+        camTrackRef.current = track;
+        if (mode !== "none") await setBackground(mode);
+      } else {
+        camTrackRef.current = track;
+        await replaceVideoTrack(track);
+      }
+      if (wasOff) { track.enabled = false; }
+    } catch {
+      setError("Не удалось переключить камеру");
+    }
+  };
+
+  const switchMic = async (deviceId: string) => {
+    setMicId(deviceId);
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      const track = fresh.getAudioTracks()[0];
+      if (!track) return;
+      track.enabled = micOn;
+
+      const sender = pcRef.current?.getSenders().find(s => s.track?.kind === "audio");
+      if (sender) await sender.replaceTrack(track);
+      if (streamRef.current) {
+        const old = streamRef.current.getAudioTracks()[0];
+        if (old) { streamRef.current.removeTrack(old); old.stop(); }
+        streamRef.current.addTrack(track);
+      }
+    } catch {
+      setError("Не удалось переключить микрофон");
+    }
+  };
+
+  const switchSpeaker = async (deviceId: string) => {
+    setSpkId(deviceId);
+    await applySink(remoteRef.current);
+  };
+
   const toggleShare = async () => {
     if (sharing) {
       if (camTrackRef.current) await replaceVideoTrack(camTrackRef.current);
@@ -363,6 +422,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     localRef, remoteRef, status, peers, error,
     micOn, camOn, sharing, bgMode, bgLoading,
     toggleMic, toggleCam, toggleShare, setBackground,
+    switchCamera, switchMic, switchSpeaker,
     remoteCount: peers.filter(p => p.id !== meRef.current).length,
   };
 }

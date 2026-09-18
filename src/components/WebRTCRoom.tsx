@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 import useWebRTC from "@/hooks/useWebRTC";
 import DeviceCheck from "@/components/DeviceCheck";
+import RoomDevicePanel from "@/components/RoomDevicePanel";
 
 const BACKGROUNDS = [
   { name: "Кабинет", url: "https://cdn.poehali.dev/projects/c493c9c0-36da-4678-9f91-8e2c04f4bfe4/files/681530bc-9c65-4d8e-b4e1-ea319efad35d.jpg" },
@@ -23,6 +24,7 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
     localRef, remoteRef, status, error,
     micOn, camOn, sharing, bgMode, bgLoading,
     toggleMic, toggleCam, toggleShare, setBackground, remoteCount,
+    switchCamera, switchMic, switchSpeaker,
   } = useWebRTC({ room, enabled: joined, startMuted: !startOpts.micOn, startCamOff: !startOpts.camOn });
 
   const [bgOpen, setBgOpen] = useState(false);
@@ -110,7 +112,7 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
         </div>
       </div>
 
-      <div className="flex items-center justify-center gap-2 py-3 bg-neutral-950">
+      <div className="flex flex-wrap items-center justify-center gap-2 py-3 px-2 bg-neutral-950">
         <button onClick={toggleMic} className={btn(micOn)} title={micOn ? "Выключить микрофон" : "Включить микрофон"}>
           <Icon name={micOn ? "Mic" : "MicOff"} size={18} />
         </button>
@@ -173,6 +175,13 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
             </div>
           )}
         </div>
+
+        <RoomDevicePanel
+          onCamera={switchCamera}
+          onMic={switchMic}
+          onSpeaker={switchSpeaker}
+          disabledCam={sharing}
+        />
 
         <button
           onClick={toggleFull}
