@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 import useWebRTC from "@/hooks/useWebRTC";
+import DeviceCheck from "@/components/DeviceCheck";
 
 const BACKGROUNDS = [
   { name: "Кабинет", url: "https://cdn.poehali.dev/projects/c493c9c0-36da-4678-9f91-8e2c04f4bfe4/files/681530bc-9c65-4d8e-b4e1-ea319efad35d.jpg" },
@@ -15,13 +16,40 @@ interface Props {
 }
 
 export default function WebRTCRoom({ room, onLeave }: Props) {
+  const [joined, setJoined] = useState(false);
+  const [startOpts, setStartOpts] = useState<{ micOn: boolean; camOn: boolean }>({ micOn: true, camOn: true });
+
   const {
     localRef, remoteRef, status, error,
     micOn, camOn, sharing, bgMode, bgLoading,
     toggleMic, toggleCam, toggleShare, setBackground, remoteCount,
-  } = useWebRTC({ room, enabled: true });
+  } = useWebRTC({ room, enabled: joined, startMuted: !startOpts.micOn, startCamOff: !startOpts.camOn });
 
   const [bgOpen, setBgOpen] = useState(false);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const [isFull, setIsFull] = useState(false);
+
+  useEffect(() => {
+    const onChange = () => setIsFull(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  const toggleFull = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await shellRef.current?.requestFullscreen();
+    } catch { /* не поддерживается */ }
+  };
+
+  if (!joined) {
+    return (
+      <DeviceCheck
+        onReady={opts => { setStartOpts(opts); setJoined(true); }}
+        onCancel={onLeave}
+      />
+    );
+  }
 
   const statusText = {
     idle: "Подключаюсь...",
@@ -38,7 +66,7 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
     }`;
 
   return (
-    <div className="w-full h-full min-h-[280px] flex flex-col bg-neutral-900">
+    <div ref={shellRef} className="w-full h-full min-h-[280px] flex flex-col bg-neutral-900">
       <div className="flex-1 relative min-h-0">
         <video
           ref={remoteRef}
@@ -145,6 +173,14 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
             </div>
           )}
         </div>
+
+        <button
+          onClick={toggleFull}
+          className="w-11 h-11 rounded-full bg-muted hover:bg-muted/70 text-foreground flex items-center justify-center transition-colors"
+          title={isFull ? "Выйти из полного экрана" : "Развернуть на весь экран"}
+        >
+          <Icon name={isFull ? "Minimize" : "Maximize"} size={18} />
+        </button>
 
         {onLeave && (
           <button onClick={onLeave} className="w-11 h-11 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center transition-colors" title="Выйти">

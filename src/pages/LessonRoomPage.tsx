@@ -45,6 +45,14 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
     return () => setInLesson(false);
   }, [room, setInLesson]);
   const frameRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+
+  const toggleStageFull = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await stageRef.current?.requestFullscreen();
+    } catch { /* не поддерживается */ }
+  };
 
   useEffect(() => {
     apiGetCalendar()
@@ -174,8 +182,14 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
         )}
 
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-2">
-          <div className={`flex-1 min-w-0 bg-card rounded-xl border border-border overflow-hidden
+          <div ref={stageRef} className={`relative flex-1 min-w-0 bg-card rounded-xl border border-border overflow-hidden
             ${kbOpen && chatOpen ? "hidden lg:block" : "min-h-[280px]"}`}>
+            {getPlatform() === "jitsi" && (
+              <button onClick={toggleStageFull} title="Развернуть на весь экран"
+                className="absolute top-2 right-2 z-10 w-9 h-9 rounded-lg bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition-colors">
+                <Icon name="Maximize" size={16} />
+              </button>
+            )}
             {getPlatform() === "webrtc" ? (
               <WebRTCRoom room={room} userName={user.name} />
             ) : getPlatform() === "jitsi" ? (

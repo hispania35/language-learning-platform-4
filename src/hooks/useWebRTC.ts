@@ -25,14 +25,16 @@ export type RtcStatus = "idle" | "media" | "connecting" | "waiting" | "connected
 interface Options {
   room: string;
   enabled: boolean;
+  startMuted?: boolean;
+  startCamOff?: boolean;
 }
 
-export function useWebRTC({ room, enabled }: Options) {
+export function useWebRTC({ room, enabled, startMuted = false, startCamOff = false }: Options) {
   const [status, setStatus] = useState<RtcStatus>("idle");
   const [peers, setPeers] = useState<RtcPeer[]>([]);
   const [error, setError] = useState("");
-  const [micOn, setMicOn] = useState(true);
-  const [camOn, setCamOn] = useState(true);
+  const [micOn, setMicOn] = useState(!startMuted);
+  const [camOn, setCamOn] = useState(!startCamOff);
   const [sharing, setSharing] = useState(false);
   const [bgMode, setBgModeState] = useState<BgMode>("none");
   const [bgLoading, setBgLoading] = useState(false);
@@ -210,6 +212,11 @@ export function useWebRTC({ room, enabled }: Options) {
         return;
       }
 
+      const aTrack = stream.getAudioTracks()[0];
+      if (aTrack && startMuted) { aTrack.enabled = false; setMicOn(false); }
+      const vTrack = stream.getVideoTracks()[0];
+      if (vTrack && startCamOff) { vTrack.enabled = false; setCamOn(false); }
+
       streamRef.current = stream;
       camTrackRef.current = stream.getVideoTracks()[0] || null;
       rawTrackRef.current = camTrackRef.current;
@@ -270,7 +277,7 @@ export function useWebRTC({ room, enabled }: Options) {
       setStatus("idle");
       setPeers([]);
     };
-  }, [room, enabled, createPeer, handleSignal]);
+  }, [room, enabled, createPeer, handleSignal, startMuted, startCamOff]);
 
   const toggleMic = () => {
     const track = streamRef.current?.getAudioTracks()[0];
