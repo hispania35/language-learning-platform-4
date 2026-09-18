@@ -225,7 +225,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
           </div>
 
           {chatOpen && (
-            <div className={`lg:w-80 lg:flex-shrink-0 lg:h-auto lg:min-h-0 bg-card rounded-xl border border-border overflow-hidden flex flex-col animate-fade-in
+            <div className={`lg:w-[22rem] xl:w-96 lg:flex-shrink-0 lg:h-auto lg:min-h-0 bg-card rounded-xl border border-border overflow-hidden flex flex-col animate-fade-in
               ${kbOpen ? "flex-1 min-h-0 h-auto" : "h-72"}`}>
               <div className="px-3 py-2 border-b border-border flex items-center gap-2 flex-shrink-0">
                 <Icon name="MessageSquare" size={14} className="text-primary" />

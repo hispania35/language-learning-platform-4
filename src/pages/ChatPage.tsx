@@ -710,18 +710,18 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-end gap-2">
+                  <div className="flex items-end gap-1.5 sm:gap-2 min-w-0">
                     <input ref={fileRef} type="file" className="hidden"
                       onChange={e => { const f = e.target.files?.[0]; if (f) pickFile(f); e.target.value = ""; }} />
 
                     <button onClick={() => fileRef.current?.click()} title="Прикрепить файл"
-                      className="w-10 h-10 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0">
-                      <Icon name="Paperclip" size={18} />
+                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0">
+                      <Icon name="Paperclip" size={17} />
                     </button>
 
                     <button onClick={startRec} title="Записать голосовое"
-                      className="w-10 h-10 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0">
-                      <Icon name="Mic" size={18} />
+                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0">
+                      <Icon name="Mic" size={17} />
                     </button>
 
                     <textarea rows={1} value={text} onChange={e => onType(e.target.value)}
@@ -731,7 +731,7 @@ export default function ChatPage({ user, preselect, panel }: { user: User; prese
                       }}
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                       placeholder={target.kind === "group" ? `Сообщение группе «${target.name}»` : "Написать сообщение..."}
-                      className="flex-1 px-3 py-2.5 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 resize-none max-h-32" />
+                      className="flex-1 min-w-0 px-3 py-2.5 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 resize-none max-h-32" />
 
                     <button onClick={send} disabled={sending || (!text.trim() && !pending)}
                       className="w-10 h-10 rounded-lg red-accent text-white flex items-center justify-center hover:opacity-90 disabled:opacity-40 transition-opacity flex-shrink-0">
