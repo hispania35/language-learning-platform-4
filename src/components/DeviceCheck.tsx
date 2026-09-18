@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
-import { getCamId, getMicId, setCamId, setMicId, videoConstraint, audioConstraint } from "@/lib/mediaPrefs";
+import { getCamId, getMicId, setCamId, setMicId, getSpkId, setSpkId, canPickSpeaker, applySink, videoConstraint, audioConstraint } from "@/lib/mediaPrefs";
 
 interface Props {
   onReady: (opts: { micOn: boolean; camOn: boolean }) => void;
@@ -26,9 +26,18 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [camId, setCam] = useState(getCamId());
   const [micId, setMic] = useState(getMicId());
+  const [spks, setSpks] = useState<MediaDeviceInfo[]>([]);
+  const [spkId, setSpk] = useState(getSpkId());
+  const [testing, setTesting] = useState(false);
+  const toneCtxRef = useRef<AudioContext | null>(null);
+  const testElRef = useRef<HTMLAudioElement | null>(null);
 
   const stopAll = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
+    toneCtxRef.current?.close().catch(() => {});
+    toneCtxRef.current = null;
+    testElRef.current?.pause();
+    testElRef.current = null;
     audioCtxRef.current?.close().catch(() => {});
     audioCtxRef.current = null;
     streamRef.current?.getTracks().forEach(t => t.stop());
@@ -107,6 +116,7 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
       const list = await navigator.mediaDevices.enumerateDevices();
       setCams(list.filter(d => d.kind === "videoinput"));
       setMics(list.filter(d => d.kind === "audioinput"));
+      setSpks(list.filter(d => d.kind === "audiooutput"));
       const vSet = stream.getVideoTracks()[0]?.getSettings().deviceId || "";
       const aSet = stream.getAudioTracks()[0]?.getSettings().deviceId || "";
       if (vSet) setCam(vSet);
@@ -121,8 +131,62 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
     return stopAll;
   }, [init, stopAll]);
 
-  const switchDevice = async (kind: "cam" | "mic", id: string) => {
-    if (kind === "cam") { setCam(id); setCamId(id); } else { setMic(id); setMicId(id); }
+  const playTest = async () => {
+    if (testing) return;
+    setTesting(true);
+    try {
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new Ctx();
+      toneCtxRef.current = ctx;
+      const dest = ctx.createMediaStreamDestination();
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      gain.connect(dest);
+
+      const el = new Audio();
+      testElRef.current = el;
+      el.srcObject = dest.stream;
+      await applySink(el);
+      el.play().catch(() => {});
+
+      const notes = [523.25, 659.25, 783.99];
+      const now = ctx.currentTime;
+      notes.forEach((f, i) => {
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = f;
+        const g = ctx.createGain();
+        const t0 = now + i * 0.26;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.04);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.24);
+        osc.connect(g);
+        g.connect(dest);
+        osc.start(t0);
+        osc.stop(t0 + 0.26);
+      });
+
+      setTimeout(() => {
+        el.pause();
+        el.srcObject = null;
+        ctx.close().catch(() => {});
+        toneCtxRef.current = null;
+        setTesting(false);
+      }, 1100);
+    } catch {
+      setTesting(false);
+      setNote("Не удалось воспроизвести звук");
+    }
+  };
+
+  const switchDevice = async (kind: "cam" | "mic" | "spk", id: string) => {
+    if (kind === "spk") {
+      setSpk(id);
+      setSpkId(id);
+      return;
+    }
+    if (kind === "cam") { setCam(id); setCamId(id); }
+    else { setMic(id); setMicId(id); }
     stopAll();
     await init();
   };
@@ -218,8 +282,20 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
                     onChange={id => switchDevice("mic", id)}
                   />
                 )}
+                {canPickSpeaker() && spks.length > 1 && (
+                  <DevicePicker
+                    icon="Volume2" value={spkId} list={spks} fallback="Динамик"
+                    onChange={id => switchDevice("spk", id)}
+                  />
+                )}
               </div>
             )}
+
+            <button onClick={playTest} disabled={testing}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-white text-xs font-montserrat font-medium transition-colors disabled:opacity-60">
+              <Icon name={testing ? "Volume2" : "Play"} size={14} className={testing ? "animate-pulse" : ""} />
+              {testing ? "Слышите сигнал?" : "Проверить звук в наушниках"}
+            </button>
           </div>
         )}
 

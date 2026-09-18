@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { apiRtcPoll, apiRtcSend, apiRtcLeave, type RtcPeer } from "@/lib/api";
 import { createBackgroundFx, type BgMode, type FxHandle } from "@/lib/backgroundFx";
-import { videoConstraint, audioConstraint } from "@/lib/mediaPrefs";
+import { videoConstraint, audioConstraint, applySink } from "@/lib/mediaPrefs";
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -74,6 +74,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     pc.ontrack = e => {
       if (remoteRef.current && e.streams[0]) {
         remoteRef.current.srcObject = e.streams[0];
+        applySink(remoteRef.current);
         remoteRef.current.play().catch(() => {});
       }
     };
