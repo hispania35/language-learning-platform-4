@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { apiRtcPoll, apiRtcSend, apiRtcLeave, type RtcPeer } from "@/lib/api";
 import { createBackgroundFx, type BgMode, type FxHandle } from "@/lib/backgroundFx";
+import { videoConstraint, audioConstraint } from "@/lib/mediaPrefs";
 
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
@@ -168,7 +169,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
 
     let timer: ReturnType<typeof setTimeout>;
 
-    const AUDIO_OPTS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    const AUDIO_OPTS = audioConstraint();
 
     const withTimeout = (p: Promise<MediaStream>, ms: number) =>
       Promise.race([
@@ -179,14 +180,14 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     const grabMedia = async (): Promise<MediaStream | null> => {
       try {
         return await withTimeout(navigator.mediaDevices.getUserMedia({
-          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: videoConstraint(true),
           audio: AUDIO_OPTS,
         }), 12000);
       } catch { /* камера занята или не отвечает */ }
 
       try {
         const s = await withTimeout(navigator.mediaDevices.getUserMedia({
-          video: true, audio: AUDIO_OPTS,
+          video: videoConstraint(false), audio: AUDIO_OPTS,
         }), 8000);
         setError("Камера работает в упрощённом качестве");
         return s;

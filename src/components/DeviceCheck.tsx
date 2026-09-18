@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Icon from "@/components/ui/icon";
+import { getCamId, getMicId, setCamId, setMicId, videoConstraint, audioConstraint } from "@/lib/mediaPrefs";
 
 interface Props {
   onReady: (opts: { micOn: boolean; camOn: boolean }) => void;
@@ -21,6 +22,10 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
   const [hasVideo, setHasVideo] = useState(false);
   const [hasAudio, setHasAudio] = useState(false);
   const [note, setNote] = useState("");
+  const [cams, setCams] = useState<MediaDeviceInfo[]>([]);
+  const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
+  const [camId, setCam] = useState(getCamId());
+  const [micId, setMic] = useState(getMicId());
 
   const stopAll = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -53,7 +58,7 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
   const init = useCallback(async () => {
     setPhase("asking");
     setNote("");
-    const AUDIO = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    const AUDIO = audioConstraint();
 
     const tryGet = (c: MediaStreamConstraints, ms: number) =>
       Promise.race([
@@ -63,12 +68,12 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
 
     let stream: MediaStream | null = null;
     try {
-      stream = await tryGet({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: AUDIO }, 12000);
+      stream = await tryGet({ video: videoConstraint(true), audio: AUDIO }, 12000);
     } catch { /* пробуем проще */ }
 
     if (!stream) {
       try {
-        stream = await tryGet({ video: true, audio: AUDIO }, 8000);
+        stream = await tryGet({ video: videoConstraint(false), audio: AUDIO }, 8000);
         setNote("Камера работает в упрощённом качестве");
       } catch { /* только звук */ }
     }
@@ -97,6 +102,17 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
       videoRef.current.play().catch(() => {});
     }
     if (a) listen(stream);
+
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      setCams(list.filter(d => d.kind === "videoinput"));
+      setMics(list.filter(d => d.kind === "audioinput"));
+      const vSet = stream.getVideoTracks()[0]?.getSettings().deviceId || "";
+      const aSet = stream.getAudioTracks()[0]?.getSettings().deviceId || "";
+      if (vSet) setCam(vSet);
+      if (aSet) setMic(aSet);
+    } catch { /* список недоступен */ }
+
     setPhase("ready");
   }, [listen]);
 
@@ -104,6 +120,12 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
     init();
     return stopAll;
   }, [init, stopAll]);
+
+  const switchDevice = async (kind: "cam" | "mic", id: string) => {
+    if (kind === "cam") { setCam(id); setCamId(id); } else { setMic(id); setMicId(id); }
+    stopAll();
+    await init();
+  };
 
   const toggleCam = () => {
     const t = streamRef.current?.getVideoTracks()[0];
@@ -181,6 +203,23 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
               </span>
             </div>
             {note && <p className="text-[11px] font-ibm text-amber-400 px-1">{note}</p>}
+
+            {(cams.length > 1 || mics.length > 1) && (
+              <div className="grid gap-2">
+                {cams.length > 1 && (
+                  <DevicePicker
+                    icon="Video" value={camId} list={cams} fallback="Камера"
+                    onChange={id => switchDevice("cam", id)}
+                  />
+                )}
+                {mics.length > 1 && (
+                  <DevicePicker
+                    icon="Mic" value={micId} list={mics} fallback="Микрофон"
+                    onChange={id => switchDevice("mic", id)}
+                  />
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -215,6 +254,31 @@ export default function DeviceCheck({ onReady, onCancel }: Props) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+function DevicePicker({ icon, value, list, fallback, onChange }: {
+  icon: string;
+  value: string;
+  list: MediaDeviceInfo[];
+  fallback: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-white/5">
+      <Icon name={icon} size={15} className="text-white/70 flex-shrink-0" />
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="flex-1 min-w-0 bg-transparent text-xs font-ibm text-white outline-none cursor-pointer"
+      >
+        {list.map((d, i) => (
+          <option key={d.deviceId || i} value={d.deviceId} className="bg-neutral-800 text-white">
+            {d.label || `${fallback} ${i + 1}`}
+          </option>
+        ))}
+      </select>
+      <Icon name="ChevronDown" size={14} className="text-white/40 flex-shrink-0" />
     </div>
   );
 }
