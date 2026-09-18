@@ -22,10 +22,10 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
   const [startOpts, setStartOpts] = useState<{ micOn: boolean; camOn: boolean }>({ micOn: true, camOn: true });
 
   const {
-    localRef, remoteRef, status, error, net,
+    localRef, remoteRef, status, error, net, qualityNote,
     micOn, camOn, sharing, bgMode, bgLoading,
     toggleMic, toggleCam, toggleShare, setBackground, remoteCount,
-    switchCamera, switchMic, switchSpeaker,
+    switchCamera, switchMic, switchSpeaker, tier, setVideoTier,
   } = useWebRTC({ room, enabled: joined, startMuted: !startOpts.micOn, startCamOff: !startOpts.camOn });
 
   const [bgOpen, setBgOpen] = useState(false);
@@ -117,6 +117,26 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
             <NetBadge net={net} />
           </div>
         )}
+
+        {qualityNote && (
+          <div key={qualityNote.id}
+            className="absolute top-12 right-3 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/70 backdrop-blur border border-white/10 animate-scale-in max-w-[240px]">
+            <Icon
+              name={qualityNote.down ? "TrendingDown" : "TrendingUp"}
+              size={14}
+              className={qualityNote.down ? "text-amber-400 flex-shrink-0" : "text-emerald-400 flex-shrink-0"}
+            />
+            <span className="text-[11px] font-ibm text-white leading-snug">
+              {qualityNote.down
+                ? qualityNote.tier === "low"
+                  ? "Слабый интернет — качество снижено, чтобы связь не оборвалась"
+                  : "Интернет просел — качество видео снижено"
+                : qualityNote.tier === "high"
+                  ? "Связь восстановилась — вернул высокое качество"
+                  : "Связь улучшилась — качество повышено"}
+            </span>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-center gap-2 py-3 px-2 bg-neutral-950">
@@ -188,6 +208,8 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
           onMic={switchMic}
           onSpeaker={switchSpeaker}
           disabledCam={sharing}
+          tier={tier}
+          onTier={setVideoTier}
         />
 
         <button

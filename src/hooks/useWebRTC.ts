@@ -23,6 +23,13 @@ const ICE_SERVERS: RTCConfiguration = {
 
 export type RtcStatus = "idle" | "media" | "connecting" | "waiting" | "connected" | "failed";
 export type NetQuality = "unknown" | "good" | "ok" | "poor";
+export type VideoTier = "high" | "medium" | "low";
+
+export interface QualityNote {
+  id: number;
+  tier: VideoTier;
+  down: boolean;
+}
 
 export interface NetInfo {
   quality: NetQuality;
@@ -49,6 +56,8 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
   const [bgMode, setBgModeState] = useState<BgMode>("none");
   const [bgLoading, setBgLoading] = useState(false);
   const [net, setNet] = useState<NetInfo>({ quality: "unknown", rtt: 0, loss: 0, kbps: 0, relayed: false });
+  const [tier, setTier] = useState<VideoTier>("high");
+  const [qualityNote, setQualityNote] = useState<QualityNote | null>(null);
 
   const localRef = useRef<HTMLVideoElement | null>(null);
   const remoteRef = useRef<HTMLVideoElement | null>(null);
@@ -66,6 +75,9 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
   const hasRemoteRef = useRef(false);
   const restartsRef = useRef(0);
   const statsRef = useRef({ lost: 0, recv: 0, bytes: 0, at: 0 });
+  const tierRef = useRef<VideoTier>("high");
+  const streakRef = useRef({ bad: 0, good: 0 });
+  const autoTierRef = useRef(true);
 
   const send = useCallback((kind: string, payload: unknown) => {
     apiRtcSend(room, kind, payload).catch(() => {});
@@ -292,6 +304,42 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     };
   }, [room, enabled, createPeer, handleSignal, startMuted, startCamOff]);
 
+  const applyTier = useCallback(async (next: VideoTier, auto: boolean) => {
+    const prev = tierRef.current;
+    if (prev === next) return;
+    const sender = pcRef.current?.getSenders().find(s => s.track?.kind === "video");
+    if (!sender) return;
+
+    const LIMITS: Record<VideoTier, { maxBitrate: number; scale: number; fps: number }> = {
+      high: { maxBitrate: 1_200_000, scale: 1, fps: 30 },
+      medium: { maxBitrate: 500_000, scale: 2, fps: 24 },
+      low: { maxBitrate: 180_000, scale: 4, fps: 15 },
+    };
+
+    try {
+      const params = sender.getParameters();
+      if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
+      const cfg = LIMITS[next];
+      params.encodings[0].maxBitrate = cfg.maxBitrate;
+      params.encodings[0].scaleResolutionDownBy = cfg.scale;
+      params.encodings[0].maxFramerate = cfg.fps;
+      await sender.setParameters(params);
+    } catch { return; }
+
+    tierRef.current = next;
+    setTier(next);
+    if (!auto) autoTierRef.current = false;
+
+    const order: VideoTier[] = ["low", "medium", "high"];
+    setQualityNote({ id: Date.now(), tier: next, down: order.indexOf(next) < order.indexOf(prev) });
+  }, []);
+
+  useEffect(() => {
+    if (!qualityNote) return;
+    const t = setTimeout(() => setQualityNote(null), 4000);
+    return () => clearTimeout(t);
+  }, [qualityNote]);
+
   useEffect(() => {
     if (!enabled || status !== "connected") {
       if (status !== "connected") setNet(n => (n.quality === "unknown" ? n : { ...n, quality: "unknown" }));
@@ -343,6 +391,24 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
 
       if (!prev.at) quality = "good";
       setNet({ quality, rtt, loss, kbps, relayed });
+
+      if (!autoTierRef.current || !prev.at) return;
+
+      const streak = streakRef.current;
+      if (quality === "poor") { streak.bad += 1; streak.good = 0; }
+      else if (quality === "good") { streak.good += 1; streak.bad = 0; }
+      else { streak.bad = 0; streak.good = 0; }
+
+      const cur = tierRef.current;
+      if (streak.bad >= 2) {
+        streak.bad = 0;
+        if (cur === "high") await applyTier("medium", true);
+        else if (cur === "medium") await applyTier("low", true);
+      } else if (streak.good >= 4) {
+        streak.good = 0;
+        if (cur === "low") await applyTier("medium", true);
+        else if (cur === "medium") await applyTier("high", true);
+      }
     };
 
     const id = setInterval(tick, 3000);
@@ -350,8 +416,9 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     return () => {
       clearInterval(id);
       statsRef.current = { lost: 0, recv: 0, bytes: 0, at: 0 };
+      streakRef.current = { bad: 0, good: 0 };
     };
-  }, [enabled, status]);
+  }, [enabled, status, applyTier]);
 
   const toggleMic = () => {
     const track = streamRef.current?.getAudioTracks()[0];
@@ -491,7 +558,9 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
   };
 
   return {
-    localRef, remoteRef, status, peers, error, net,
+    localRef, remoteRef, status, peers, error, net, tier, qualityNote,
+    setVideoTier: (t: VideoTier) => applyTier(t, false),
+    autoQuality: autoTierRef.current,
     micOn, camOn, sharing, bgMode, bgLoading,
     toggleMic, toggleCam, toggleShare, setBackground,
     switchCamera, switchMic, switchSpeaker,

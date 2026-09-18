@@ -7,9 +7,17 @@ interface Props {
   onMic: (id: string) => void;
   onSpeaker: (id: string) => void;
   disabledCam?: boolean;
+  tier?: "high" | "medium" | "low";
+  onTier?: (t: "high" | "medium" | "low") => void;
 }
 
-export default function RoomDevicePanel({ onCamera, onMic, onSpeaker, disabledCam }: Props) {
+const TIERS = [
+  { id: "high" as const, label: "Высокое" },
+  { id: "medium" as const, label: "Среднее" },
+  { id: "low" as const, label: "Экономное" },
+];
+
+export default function RoomDevicePanel({ onCamera, onMic, onSpeaker, disabledCam, tier, onTier }: Props) {
   const [open, setOpen] = useState(false);
   const [cams, setCams] = useState<MediaDeviceInfo[]>([]);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
@@ -131,6 +139,25 @@ export default function RoomDevicePanel({ onCamera, onMic, onSpeaker, disabledCa
           )}
           {mics.length > 0 && row("Mic", mics, micId, "Микрофон", "mic")}
           {canPickSpeaker() && spks.length > 0 && row("Volume2", spks, spkId, "Динамик", "spk")}
+
+          {onTier && tier && (
+            <div className="space-y-1 pt-1 border-t border-border">
+              <p className="text-[11px] font-montserrat font-bold text-foreground px-1">Качество видео</p>
+              <div className="flex gap-1">
+                {TIERS.map(t => (
+                  <button key={t.id} onClick={() => onTier(t.id)}
+                    className={`flex-1 py-1.5 rounded-lg text-[11px] font-montserrat font-medium transition-colors ${
+                      tier === t.id ? "red-accent text-white" : "border border-border text-foreground hover:bg-muted"
+                    }`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[10px] font-ibm text-muted-foreground px-1">
+                По умолчанию подстраивается само под скорость интернета
+              </p>
+            </div>
+          )}
 
           <button
             onClick={playTest}
