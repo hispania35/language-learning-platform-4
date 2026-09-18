@@ -20,7 +20,7 @@ const ICE_SERVERS: RTCConfiguration = {
   iceCandidatePoolSize: 4,
 };
 
-export type RtcStatus = "idle" | "connecting" | "waiting" | "connected" | "failed";
+export type RtcStatus = "idle" | "media" | "connecting" | "waiting" | "connected" | "failed";
 
 interface Options {
   room: string;
@@ -160,32 +160,65 @@ export function useWebRTC({ room, enabled }: Options) {
   useEffect(() => {
     if (!enabled || !room) return;
     stopRef.current = false;
-    setStatus("connecting");
+    setStatus("media");
     setError("");
     sinceRef.current = 0;
 
     let timer: ReturnType<typeof setTimeout>;
 
-    const start = async () => {
+    const AUDIO_OPTS = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+
+    const withTimeout = (p: Promise<MediaStream>, ms: number) =>
+      Promise.race([
+        p,
+        new Promise<MediaStream>((_, rej) => setTimeout(() => rej(new Error("timeout")), ms)),
+      ]);
+
+    const grabMedia = async (): Promise<MediaStream | null> => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        return await withTimeout(navigator.mediaDevices.getUserMedia({
           video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        });
-        if (stopRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
-        streamRef.current = stream;
-        camTrackRef.current = stream.getVideoTracks()[0] || null;
-        rawTrackRef.current = camTrackRef.current;
-        if (localRef.current) {
-          localRef.current.srcObject = stream;
-          localRef.current.play().catch(() => {});
-        }
-        setStatus("waiting");
-        loop();
-      } catch {
-        setError("Нет доступа к камере или микрофону");
+          audio: AUDIO_OPTS,
+        }), 12000);
+      } catch { /* камера занята или не отвечает */ }
+
+      try {
+        const s = await withTimeout(navigator.mediaDevices.getUserMedia({
+          video: true, audio: AUDIO_OPTS,
+        }), 8000);
+        setError("Камера работает в упрощённом качестве");
+        return s;
+      } catch { /* пробуем без видео */ }
+
+      try {
+        const s = await withTimeout(navigator.mediaDevices.getUserMedia({ audio: AUDIO_OPTS }), 8000);
+        setCamOn(false);
+        setError("Камера занята другой программой — включён только звук");
+        return s;
+      } catch { /* нет доступа вообще */ }
+
+      return null;
+    };
+
+    const start = async () => {
+      const stream = await grabMedia();
+      if (stopRef.current) { stream?.getTracks().forEach(t => t.stop()); return; }
+
+      if (!stream) {
+        setError("Не удалось включить камеру и микрофон. Закройте другие программы, использующие камеру, разрешите доступ в браузере и обновите страницу");
         setStatus("failed");
+        return;
       }
+
+      streamRef.current = stream;
+      camTrackRef.current = stream.getVideoTracks()[0] || null;
+      rawTrackRef.current = camTrackRef.current;
+      if (localRef.current) {
+        localRef.current.srcObject = stream;
+        localRef.current.play().catch(() => {});
+      }
+      setStatus("waiting");
+      loop();
     };
 
     const loop = async () => {

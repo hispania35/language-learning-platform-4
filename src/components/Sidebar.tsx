@@ -93,7 +93,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onClose, user,
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1">
+        <nav className="sidebar-scroll flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-1">
           {navItems.map((item) => {
             const isActive = activePage === item.id;
             return (

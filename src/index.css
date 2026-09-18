@@ -192,6 +192,24 @@
     background: hsl(0 72% 35% / 0.7);
   }
 
+  .sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(0 0% 100% / 0.22) transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar {
+    width: 6px;
+  }
+  .sidebar-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb {
+    background: hsl(0 0% 100% / 0.22);
+    border-radius: 999px;
+  }
+  .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+    background: hsl(42 95% 52% / 0.75);
+  }
+
   .progress-bar {
     background: linear-gradient(90deg, hsl(0 72% 35%), hsl(42 95% 52%));
     border-radius: 999px;

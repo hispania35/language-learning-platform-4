@@ -25,7 +25,8 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
 
   const statusText = {
     idle: "Подключаюсь...",
-    connecting: "Запрашиваю камеру...",
+    media: "Включаю камеру и микрофон...",
+    connecting: "Устанавливаю связь...",
     waiting: "Жду собеседника",
     connected: "Связь установлена",
     failed: "Ошибка соединения",
@@ -55,6 +56,14 @@ export default function WebRTCRoom({ room, onLeave }: Props) {
             <p className="text-xs font-ibm text-white/60 max-w-xs">
               {error || "Как только собеседник откроет урок, видео появится здесь"}
             </p>
+            {status === "failed" && (
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-2 flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-montserrat font-bold transition-colors">
+                <Icon name="RefreshCw" size={14} />
+                Попробовать снова
+              </button>
+            )}
           </div>
         )}
 
