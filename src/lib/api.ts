@@ -880,3 +880,8 @@ export async function apiDeleteExercise(id: number) {
   const r = await request(`${EXERCISES_URL}?id=${id}`, { method: "DELETE" });
   return r.data as { ok?: boolean; error?: string };
 }
+
+export async function apiRtcIce() {
+  const r = await request(API_URL + "?p=rtc_ice");
+  return r.data as { ice_servers?: RTCIceServer[]; turn?: boolean; error?: string };
+}

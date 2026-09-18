@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { apiRtcPoll, apiRtcSend, apiRtcLeave, type RtcPeer } from "@/lib/api";
+import { apiRtcPoll, apiRtcSend, apiRtcLeave, apiRtcIce, type RtcPeer } from "@/lib/api";
 import { createBackgroundFx, type BgMode, type FxHandle } from "@/lib/backgroundFx";
 import { videoConstraint, audioConstraint, applySink, setCamId, setMicId, setSpkId } from "@/lib/mediaPrefs";
 
@@ -75,6 +75,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
   const hasRemoteRef = useRef(false);
   const restartsRef = useRef(0);
   const statsRef = useRef({ lost: 0, recv: 0, bytes: 0, at: 0 });
+  const iceCfgRef = useRef<RTCConfiguration>(ICE_SERVERS);
   const tierRef = useRef<VideoTier>("high");
   const streakRef = useRef({ bad: 0, good: 0 });
   const autoTierRef = useRef(true);
@@ -85,7 +86,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
 
   const createPeer = useCallback(() => {
     if (pcRef.current) return pcRef.current;
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    const pc = new RTCPeerConnection(iceCfgRef.current);
     pcRef.current = pc;
 
     streamRef.current?.getTracks().forEach(t => pc.addTrack(t, streamRef.current!));
@@ -121,7 +122,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
         return;
       }
       if (st === "failed") {
-        if (restartsRef.current < 3) {
+        if (restartsRef.current < 6) {
           restartsRef.current += 1;
           setStatus("connecting");
           setError("");
@@ -132,7 +133,7 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
           } catch { /* ok */ }
         } else {
           setStatus("failed");
-          setError("Связь не устанавливается. Проверьте интернет и попробуйте ещё раз");
+          setError("Связь не устанавливается. На мобильном интернете попробуйте Wi-Fi или выключите видео");
         }
         return;
       }
@@ -228,6 +229,13 @@ export function useWebRTC({ room, enabled, startMuted = false, startCamOff = fal
     };
 
     const start = async () => {
+      try {
+        const ice = await apiRtcIce();
+        if (ice.ice_servers?.length) {
+          iceCfgRef.current = { iceServers: ice.ice_servers, iceCandidatePoolSize: 4 };
+        }
+      } catch { /* останутся серверы по умолчанию */ }
+
       const stream = await grabMedia();
       if (stopRef.current) { stream?.getTracks().forEach(t => t.stop()); return; }
 
