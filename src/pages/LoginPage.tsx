@@ -163,9 +163,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-background flex flex-col lg:flex-row">
+    <div className="h-[100dvh] bg-background flex flex-col lg:flex-row overflow-hidden">
       {/* Left — brand panel */}
-      <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] red-accent flex-col justify-between p-8 xl:p-12 relative overflow-hidden lg:sticky lg:top-0 lg:h-[100dvh]">
+      <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] red-accent flex-col justify-between p-8 xl:p-12 relative overflow-hidden h-full flex-shrink-0">
         {/* Decorative */}
         <div className="absolute inset-0 opacity-10">
           {["¡Hola!", "Gracias", "Buenos días", "¿Cómo estás?", "Hasta luego"].map((w, i) => (
@@ -222,8 +222,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       </div>
 
       {/* Right — form */}
-      <div className="flex-1 flex items-center justify-center px-4 sm:px-6 py-6 sm:py-10 min-h-[100dvh] lg:min-h-0">
-        <div className="w-full max-w-sm sm:max-w-md lg:max-w-sm animate-fade-in">
+      <div className="page-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain flex items-start sm:items-center justify-center px-4 sm:px-6 py-6 sm:py-10">
+        <div className="w-full max-w-sm sm:max-w-md lg:max-w-sm animate-fade-in my-auto">
 
           {/* Mobile logo */}
           <div className="flex items-center gap-3 mb-5 sm:mb-6 lg:hidden">
