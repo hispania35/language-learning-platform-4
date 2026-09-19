@@ -35,6 +35,8 @@ type Row = {
   error?: string;
 };
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 const readAsDataUrl = (f: File) =>
   new Promise<string>((resolve, reject) => {
     const r = new FileReader();
@@ -80,7 +82,17 @@ export default function LibraryUploadDialog({
     if (fromFolder) {
       const rel = (picked[0] as File & { webkitRelativePath?: string })?.webkitRelativePath || "";
       const dir = rel.split("/")[0];
-      if (dir) setFolderName(dir);
+      if (dir) {
+        setFolderName(dir);
+        // Подставляем имя папки как название каталога, если он ещё не выбран
+        if (!subjectId && !newSubject.trim()) {
+          const exists = allSubjects.find(
+            x => x.parent_id === langId && x.name.toLowerCase() === dir.toLowerCase()
+          );
+          if (exists) setSubjectId(exists.id);
+          else setNewSubject(dir);
+        }
+      }
     }
     const limit = maxMb * 1024 * 1024;
     const tooBig = picked.filter(f => f.size > limit);
@@ -146,27 +158,44 @@ export default function LibraryUploadDialog({
         description: description.trim(),
         subject_id: targetId,
       };
-      try {
-        const big = directUpload && row.file.size > SMALL_MB * 1024 * 1024;
-        const res = big
-          ? await apiUploadLibraryLarge(row.file, meta, p => patch(i, { progress: p }))
-          : await apiUploadLibraryItem({
-              ...meta,
-              file_data: await readAsDataUrl(row.file),
-              file_name: row.file.name,
-              mime: row.file.type || "application/octet-stream",
-            });
-        if (res.ok) { patch(i, { state: "done", progress: 100 }); okCount++; }
-        else {
-          const error = res.error || "Сервер отклонил файл";
-          patch(i, { state: "fail", error });
-          failedRows.push({ ...row, error });
+      const big = directUpload && row.file.size > SMALL_MB * 1024 * 1024;
+      let lastError = "";
+      let done = false;
+
+      // До трёх попыток: сервер иногда отбрасывает файлы при плотном потоке
+      for (let attempt = 1; attempt <= 3 && !done; attempt++) {
+        if (attempt > 1) {
+          patch(i, { state: "run", progress: 0, error: `Повтор ${attempt} из 3...` });
+          await sleep(900 * attempt);
         }
-      } catch {
-        const error = "Загрузка прервалась";
-        patch(i, { state: "fail", error });
-        failedRows.push({ ...row, error });
+        try {
+          const res = big
+            ? await apiUploadLibraryLarge(row.file, meta, p => patch(i, { progress: p }))
+            : await apiUploadLibraryItem({
+                ...meta,
+                file_data: await readAsDataUrl(row.file),
+                file_name: row.file.name,
+                mime: row.file.type || "application/octet-stream",
+              });
+          if (res.ok) {
+            patch(i, { state: "done", progress: 100, error: "" });
+            okCount++;
+            done = true;
+          } else {
+            lastError = res.error || "Сервер отклонил файл";
+          }
+        } catch {
+          lastError = "Загрузка прервалась";
+        }
       }
+
+      if (!done) {
+        patch(i, { state: "fail", error: lastError });
+        failedRows.push({ ...row, error: lastError });
+      }
+
+      // Небольшая пауза между файлами — иначе сервер захлёбывается
+      await sleep(250);
     }
 
     setBusy(false);
@@ -262,10 +291,20 @@ export default function LibraryUploadDialog({
                   disabled={busy} placeholder={`Новый каталог в «${langName}»`}
                   className="flex-1 px-3 py-1.5 rounded-lg border border-dashed border-border bg-muted/30 text-xs font-ibm outline-none focus:border-primary/40" />
                 <button onClick={createSubject} disabled={busy || addingSubject || !newSubject.trim()}
-                  className="px-3 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors disabled:opacity-50">
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-montserrat font-bold transition-colors disabled:opacity-50 ${
+                    folderName && newSubject.trim() === folderName
+                      ? "red-accent text-white border-transparent hover:opacity-90"
+                      : "border-border text-foreground hover:bg-muted"
+                  }`}>
                   {addingSubject ? "..." : "Создать"}
                 </button>
               </div>
+              {folderName && newSubject.trim() === folderName && (
+                <p className="text-[11px] text-primary font-ibm mt-1 flex items-start gap-1.5">
+                  <Icon name="Sparkles" size={12} className="flex-shrink-0 mt-0.5" />
+                  Название взято из выбранной папки — нажмите «Создать» или исправьте
+                </p>
+              )}
             </>
           )}
 
@@ -280,6 +319,12 @@ export default function LibraryUploadDialog({
         <input ref={dirRef} type="file" multiple className="hidden"
           {...{ webkitdirectory: "", directory: "" } as Record<string, string>}
           onChange={e => { if (e.target.files?.length) addFiles(e.target.files, true); e.target.value = ""; }} />
+
+        <p className="text-[11px] text-muted-foreground font-ibm flex items-start gap-1.5">
+          <Icon name="Info" size={12} className="text-primary flex-shrink-0 mt-0.5" />
+          При выборе папки Windows показывает только вложенные папки — это нормально.
+          Откройте нужную папку и нажмите «Выгрузить», файлы внутри подхватятся сами.
+        </p>
 
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => fileRef.current?.click()} disabled={busy}
