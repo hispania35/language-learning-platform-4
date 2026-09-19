@@ -217,6 +217,15 @@ def handler(event: dict, context) -> dict:
         if path == "notifications" and method == "GET":
             return get_notifications(conn, user_id)
 
+        # --- Помощь: обращения к администратору ---
+        if path == "support":
+            if method == "GET":
+                return get_support(conn, user_id, role)
+            if method == "POST":
+                return create_support(event, conn, user_id, user_name, role)
+            if method == "PUT":
+                return answer_support(event, conn, user_id, role)
+
         # --- Profile ---
         if path == "profile":
             if method == "GET":
@@ -1131,6 +1140,149 @@ def mark_notifications_read(conn, user_id):
 PROFILE_COLS = ["id", "name", "email", "role", "level", "avatar", "phone",
                 "social_name", "social_url", "telegram", "whatsapp", "about",
                 "notify_email", "notify_new_lesson", "notify_cancel", "notify_chat"]
+
+TOPICS = {
+    "tech": "Техническая проблема",
+    "lesson": "Вопрос по урокам",
+    "payment": "Оплата и доступ",
+    "idea": "Пожелание",
+    "other": "Другое",
+}
+
+def get_support(conn, user_id, role):
+    """Администратор видит все обращения, остальные — только свои."""
+    cur = conn.cursor()
+    if role == "admin":
+        cur.execute(
+            """SELECT t.id, t.topic, t.message, t.status, t.answer, t.created_at,
+                      u.name, u.email, u.role, t.answered_at
+               FROM support_tickets t JOIN users u ON u.id=t.user_id
+               ORDER BY (t.status='new') DESC, t.created_at DESC LIMIT 100"""
+        )
+    else:
+        cur.execute(
+            """SELECT t.id, t.topic, t.message, t.status, t.answer, t.created_at,
+                      u.name, u.email, u.role, t.answered_at
+               FROM support_tickets t JOIN users u ON u.id=t.user_id
+               WHERE t.user_id=%s ORDER BY t.created_at DESC LIMIT 50""",
+            (user_id,)
+        )
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    tickets = [{
+        "id": r[0], "topic": r[1], "topic_label": TOPICS.get(r[1], "Другое"),
+        "message": r[2], "status": r[3], "answer": r[4],
+        "created_at": r[5].isoformat() if r[5] else None,
+        "user_name": r[6], "user_email": r[7], "user_role": r[8],
+        "answered_at": r[9].isoformat() if r[9] else None,
+    } for r in rows]
+    new_count = len([t for t in tickets if t["status"] == "new"])
+    return resp(200, {"tickets": tickets, "new_count": new_count})
+
+
+def create_support(event, conn, user_id, user_name, role):
+    """Сообщение администратору из кнопки «Помощь»."""
+    body = json.loads(event.get("body") or "{}")
+    message = (body.get("message") or "").strip()
+    topic = body.get("topic") or "other"
+    if topic not in TOPICS:
+        topic = "other"
+    if len(message) < 5:
+        conn.close()
+        return resp(400, {"error": "Опишите вопрос хотя бы парой слов"})
+
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO support_tickets (user_id, topic, message) VALUES (%s,%s,%s) RETURNING id",
+        (user_id, topic, message[:4000])
+    )
+    ticket_id = cur.fetchone()[0]
+
+    cur.execute("SELECT id, COALESCE(twofa_email,'') FROM users WHERE role='admin'")
+    admins = cur.fetchall()
+    who = "Преподаватель" if role in ("teacher", "admin") else "Ученик"
+    short = message[:80] + ("..." if len(message) > 80 else "")
+    if admins:
+        values = ",".join(
+            cur.mogrify("(%s,%s,'system')", (a[0], f"Вопрос в поддержку от {user_name}: {short}")).decode()
+            for a in admins
+        )
+        cur.execute(f"INSERT INTO notifications (user_id, text, type) VALUES {values}")
+
+    conn.commit()
+    cur.close(); conn.close()
+
+    sent = 0
+    html = _wrap(
+        "Новое обращение в поддержку",
+        [
+            f"{who} <b>{user_name}</b> задал вопрос через кнопку «Помощь».",
+            f"Тема: <b>{TOPICS.get(topic)}</b>",
+            f'<span style="display:block;padding:12px;background:#f3f4f6;border-radius:8px">{message[:1500]}</span>',
+        ],
+    )
+    for a in admins:
+        if a[1]:
+            if send_email(a[1], f"Помощь: {TOPICS.get(topic)} — {user_name}", html, message[:500]):
+                sent += 1
+
+    return resp(200, {"ok": True, "id": ticket_id, "mail_sent": sent > 0})
+
+
+def answer_support(event, conn, user_id, role):
+    """Администратор отвечает на обращение."""
+    if role != "admin":
+        conn.close()
+        return resp(403, {"error": "Только администратор"})
+    body = json.loads(event.get("body") or "{}")
+    ticket_id = body.get("id")
+    answer = (body.get("answer") or "").strip()
+    close_only = bool(body.get("close"))
+    if not ticket_id:
+        conn.close()
+        return resp(400, {"error": "Не указано обращение"})
+    if not answer and not close_only:
+        conn.close()
+        return resp(400, {"error": "Напишите ответ"})
+
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT t.user_id, u.name, u.email, t.message
+           FROM support_tickets t JOIN users u ON u.id=t.user_id WHERE t.id=%s""",
+        (int(ticket_id),)
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return resp(404, {"error": "Обращение не найдено"})
+
+    cur.execute(
+        """UPDATE support_tickets SET answer=%s, status='done', answered_by=%s, answered_at=NOW()
+           WHERE id=%s""",
+        (answer[:4000], user_id, int(ticket_id))
+    )
+    if answer:
+        cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'system')",
+                    (row[0], f"Ответ поддержки: {answer[:80]}"))
+    conn.commit()
+    cur.close(); conn.close()
+
+    sent = False
+    if answer and row[2]:
+        html = _wrap(
+            "Ответ службы поддержки",
+            [
+                f"{row[1]}, здравствуйте!",
+                "Ваш вопрос:",
+                f'<span style="display:block;padding:10px;background:#f3f4f6;border-radius:8px;color:#6b7280">{row[3][:600]}</span>',
+                "Ответ:",
+                f'<span style="display:block;padding:12px;background:#fef2f2;border-radius:8px">{answer[:1500]}</span>',
+            ],
+        )
+        sent = send_email(row[2], "Ответ на ваш вопрос — Hispania 35", html, answer[:500])
+
+    return resp(200, {"ok": True, "mail_sent": sent})
+
 
 def get_profile(conn, user_id):
     cur = conn.cursor()

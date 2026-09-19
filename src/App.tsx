@@ -14,11 +14,12 @@ import LessonRoomPage from "./pages/LessonRoomPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage, { type User } from "./pages/LoginPage";
 import Sidebar from "./components/Sidebar";
+import HelpDialog from "./components/HelpDialog";
 import TopBar from "./components/TopBar";
 import ChatToasts from "./components/ChatToasts";
 import { ChatAlertsProvider } from "./hooks/useChatAlerts";
 import { SettingsProvider } from "./hooks/useSettings";
-import { apiMe, apiLogout } from "./lib/api";
+import { apiMe, apiLogout, apiGetSupport } from "./lib/api";
 import { setPlatform } from "./lib/videoPlatform";
 
 export type Page = "dashboard" | "calendar" | "lesson" | "materials" | "homework" | "exercises" | "students" | "chat" | "profile" | "settings";
@@ -29,6 +30,8 @@ export default function App() {
     new URLSearchParams(window.location.search).get("room") ? "lesson" : "dashboard"
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpNew, setHelpNew] = useState(0);
   const [checking, setChecking] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [lessonRoom, setLessonRoom] = useState<string | null>(() => {
@@ -39,6 +42,19 @@ export default function App() {
   });
   const [chatPreselect, setChatPreselect] = useState<number[] | null>(null);
   const kbOpen = useKeyboardOpen();
+
+  const loadHelpCount = () => {
+    apiGetSupport()
+      .then(r => setHelpNew(r.new_count || 0))
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    loadHelpCount();
+    const t = setInterval(loadHelpCount, 60000);
+    return () => clearInterval(t);
+  }, [user?.role]);
 
   // Реальная высота видимой области (мобильные браузеры прячут/показывают панели)
   useEffect(() => {
@@ -160,6 +176,8 @@ export default function App() {
           onClose={() => setSidebarOpen(false)}
           user={user}
           onOpenSettings={() => { setActivePage("settings"); setSidebarOpen(false); }}
+          onOpenHelp={() => setHelpOpen(true)}
+          helpBadge={user.role === "admin" ? helpNew : 0}
         />
         <div className="flex-1 flex flex-col min-w-0">
           <div className={kbOpen && (activePage === "chat" || activePage === "lesson") ? "hidden md:block" : ""}>
@@ -180,6 +198,13 @@ export default function App() {
           </main>
         </div>
       </div>
+
+      {helpOpen && (
+        <HelpDialog
+          isAdmin={user.role === "admin"}
+          onClose={() => { setHelpOpen(false); if (user.role === "admin") loadHelpCount(); }}
+        />
+      )}
     </ChatAlertsProvider>
     </SettingsProvider>
     </TooltipProvider>

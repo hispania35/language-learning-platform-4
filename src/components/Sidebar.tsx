@@ -33,9 +33,11 @@ interface SidebarProps {
   onClose: () => void;
   user: User;
   onOpenSettings: () => void;
+  onOpenHelp: () => void;
+  helpBadge?: number;
 }
 
-export default function Sidebar({ activePage, onNavigate, isOpen, onClose, user, onOpenSettings }: SidebarProps) {
+export default function Sidebar({ activePage, onNavigate, isOpen, onClose, user, onOpenSettings, onOpenHelp, helpBadge = 0 }: SidebarProps) {
   const navItems = user.role === "teacher" || user.role === "admin" ? teacherNav : studentNav;
   const isTeacher = user.role === "teacher" || user.role === "admin";
   const { unread, soundOn, setSoundOn, inLesson } = useChatAlerts();
@@ -134,6 +136,17 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onClose, user,
             <span className={`ml-auto text-xs font-montserrat font-bold ${soundOn && !inLesson ? "text-accent" : "text-sidebar-foreground/40"}`}>
               {inLesson ? "урок" : soundOn ? "вкл" : "выкл"}
             </span>
+          </button>
+
+          <button onClick={() => { onOpenHelp(); onClose(); }}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/60 transition-all duration-150">
+            <Icon name="LifeBuoy" size={18} />
+            <span className="font-ibm">Помощь</span>
+            {helpBadge > 0 && (
+              <span className="ml-auto bg-accent text-accent-foreground text-xs font-bold px-1.5 py-0.5 rounded-full font-montserrat">
+                {helpBadge > 99 ? "99+" : helpBadge}
+              </span>
+            )}
           </button>
 
           <button onClick={() => { onOpenSettings(); onClose(); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/60 transition-all duration-150">

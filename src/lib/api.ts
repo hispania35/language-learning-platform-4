@@ -220,6 +220,39 @@ export interface Profile {
   notify_chat?: boolean;
 }
 
+export interface SupportTicket {
+  id: number;
+  topic: string;
+  topic_label: string;
+  message: string;
+  status: "new" | "done";
+  answer: string;
+  created_at: string | null;
+  answered_at: string | null;
+  user_name: string;
+  user_email: string;
+  user_role: string;
+}
+
+export async function apiGetSupport() {
+  const r = await request(API_URL + "?p=support");
+  return r.data as { tickets?: SupportTicket[]; new_count?: number; error?: string };
+}
+
+export async function apiSendSupport(topic: string, message: string) {
+  const r = await request(API_URL + "?p=support", {
+    method: "POST", body: JSON.stringify({ topic, message }),
+  });
+  return r.data as { ok?: boolean; id?: number; mail_sent?: boolean; error?: string };
+}
+
+export async function apiAnswerSupport(id: number, answer: string) {
+  const r = await request(API_URL + "?p=support", {
+    method: "PUT", body: JSON.stringify({ id, answer }),
+  });
+  return r.data as { ok?: boolean; mail_sent?: boolean; error?: string };
+}
+
 export async function apiGetProfile() {
   const r = await request(API_URL + "?p=profile");
   return r.data as { profile?: Profile; error?: string };
