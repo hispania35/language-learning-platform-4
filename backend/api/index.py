@@ -1558,7 +1558,7 @@ DEFAULT_SETTINGS = {
     "schedule_mode": "assigned",
     "video_platform": "jitsi",
     "video_link": "",
-    "jitsi_host": "meet.jit.si",
+    "jitsi_host": "hispania-35.ru",
     "notify_chat_sound": True,
     "notify_chat_toast": True,
     "notify_chat_email": False,

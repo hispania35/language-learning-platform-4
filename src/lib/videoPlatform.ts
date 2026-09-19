@@ -18,14 +18,12 @@ export const PLATFORMS: PlatformInfo[] = [
 
 const KEY = "video_platform";
 const JITSI_HOST_KEY = "jitsi_host";
-export const DEFAULT_JITSI_HOST = "meet.jit.si";
-
-const DEAD_HOSTS = ["hispania-35.ru"];
+export const DEFAULT_JITSI_HOST = "hispania-35.ru";
 
 export function getJitsiHost(): string {
   const raw = (localStorage.getItem(JITSI_HOST_KEY) || "").trim();
   const v = raw.replace(/^https?:\/\//, "").replace(/\/+$/, "");
-  if (!v || DEAD_HOSTS.includes(v)) return DEFAULT_JITSI_HOST;
+  if (!v) return DEFAULT_JITSI_HOST;
   return v;
 }
 
