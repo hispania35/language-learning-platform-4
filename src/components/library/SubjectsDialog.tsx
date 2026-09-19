@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Icon from "@/components/ui/icon";
+import MoveSubjectDialog from "@/components/library/MoveSubjectDialog";
 import {
   apiAddLibrarySubject, apiDeleteLibrarySubject, apiRenameLibrarySubject,
   type LibrarySubject,
@@ -19,6 +20,7 @@ export default function SubjectsDialog({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [moveTarget, setMoveTarget] = useState<LibrarySubject | null>(null);
   const [editId, setEditId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [addFolderFor, setAddFolderFor] = useState<number | null>(null);
@@ -160,6 +162,10 @@ export default function SubjectsDialog({
                               className="w-7 h-7 rounded-lg text-muted-foreground flex items-center justify-center hover:bg-muted transition-colors">
                               <Icon name="Pencil" size={12} />
                             </button>
+                            <button onClick={() => setMoveTarget(f)} title="Перенести в другой предмет"
+                              className="w-7 h-7 rounded-lg text-muted-foreground flex items-center justify-center hover:bg-muted transition-colors">
+                              <Icon name="FolderSymlink" size={12} />
+                            </button>
                             <button onClick={() => setConfirmId(f.id)} title="Удалить каталог"
                               className="w-7 h-7 rounded-lg text-red-600 flex items-center justify-center hover:bg-red-50 transition-colors">
                               <Icon name="Trash2" size={12} />
@@ -223,6 +229,15 @@ export default function SubjectsDialog({
           Готово
         </button>
       </div>
+
+      {moveTarget && (
+        <MoveSubjectDialog
+          folder={moveTarget}
+          subjects={subjects}
+          onClose={() => setMoveTarget(null)}
+          onMoved={() => { setMoveTarget(null); onChanged(); }}
+        />
+      )}
     </div>
   );
 }

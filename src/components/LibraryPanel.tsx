@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 import LibraryUploadDialog from "@/components/library/LibraryUploadDialog";
 import SubjectsDialog from "@/components/library/SubjectsDialog";
+import MoveSubjectDialog from "@/components/library/MoveSubjectDialog";
 import {
   apiGetLibrary, apiDeleteLibraryItem, apiAssignLibraryItem,
   apiGetStudents, apiGetGroups,
@@ -67,6 +68,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const [newFolderName, setNewFolderName] = useState("");
   const [folderBusy, setFolderBusy] = useState(false);
   const [delFolder, setDelFolder] = useState<LibrarySubject | null>(null);
+  const [moveFolder, setMoveFolder] = useState<LibrarySubject | null>(null);
   const [downloadId, setDownloadId] = useState<number | null>(null);
   const [zipBusy, setZipBusy] = useState(false);
   const [zipDone, setZipDone] = useState(0);
@@ -548,6 +550,12 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
                       ${subjectTab === f.id ? "hover:bg-white/25" : "text-muted-foreground hover:bg-muted"}`}>
                     <Icon name="Pencil" size={10} />
                   </button>
+                  <button title="Перенести каталог"
+                    onClick={() => { setMoveFolder(f); setEditFolderId(null); setDelFolder(null); }}
+                    className={`w-5 h-5 rounded flex items-center justify-center transition-colors
+                      ${subjectTab === f.id ? "hover:bg-white/25" : "text-muted-foreground hover:bg-muted"}`}>
+                    <Icon name="FolderSymlink" size={10} />
+                  </button>
                   <button title="Удалить каталог"
                     onClick={() => setDelFolder(f)}
                     className={`w-5 h-5 rounded flex items-center justify-center transition-colors
@@ -853,6 +861,21 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
       )}
 
       {/* Удаление каталога */}
+      {moveFolder && (
+        <MoveSubjectDialog
+          folder={moveFolder}
+          subjects={subjects}
+          onClose={() => setMoveFolder(null)}
+          onMoved={m => {
+            setMoveFolder(null);
+            setSubjectTab("all");
+            setMsg(m);
+            setTimeout(() => setMsg(""), 4000);
+            load();
+          }}
+        />
+      )}
+
       {delFolder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/40" onClick={() => !folderBusy && setDelFolder(null)} />

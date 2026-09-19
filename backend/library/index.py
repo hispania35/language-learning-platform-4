@@ -143,6 +143,8 @@ def handler(event: dict, context) -> dict:
             return add_subject(event, conn, user_id, role)
         if method == "POST" and action == "rename_subject":
             return rename_subject(event, conn, user_id, role)
+        if method == "POST" and action == "move_subject":
+            return move_subject(event, conn, user_id, role)
         if method == "POST" and action == "del_subject":
             return del_subject(event, conn, user_id, role)
         if method == "POST" and action == "setup_cors":
@@ -355,6 +357,101 @@ def rename_subject(event, conn, user_id, role):
     cur.close()
     conn.close()
     return resp(200, {"ok": True, "id": sid, "name": name})
+
+
+def move_subject(event, conn, user_id, role):
+    """Перенести каталог со всем содержимым в другой предмет или каталог."""
+    if role not in ("teacher", "admin"):
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    body = json.loads(event.get("body") or "{}")
+    sid = body.get("id")
+    if not sid:
+        conn.close()
+        return resp(400, {"error": "Укажите каталог"})
+    sid = int(sid)
+    parent_raw = body.get("parent_id")
+    new_parent = int(parent_raw) if parent_raw else None
+
+    cur = conn.cursor()
+    cur.execute("SELECT name, parent_id FROM library_subjects WHERE id=%s AND teacher_id=%s", (sid, user_id))
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        return resp(404, {"error": "Каталог не найден"})
+    name, old_parent = row
+
+    if new_parent == sid:
+        cur.close()
+        conn.close()
+        return resp(400, {"error": "Каталог нельзя вложить сам в себя"})
+
+    if new_parent:
+        cur.execute("SELECT id FROM library_subjects WHERE id=%s AND teacher_id=%s", (new_parent, user_id))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return resp(400, {"error": "Новое место не найдено"})
+
+        # Нельзя перенести каталог внутрь собственного потомка
+        cur.execute(
+            """WITH RECURSIVE tree AS (
+                   SELECT id FROM library_subjects WHERE id=%s AND teacher_id=%s
+                   UNION ALL
+                   SELECT s.id FROM library_subjects s JOIN tree t ON s.parent_id = t.id
+               ) SELECT 1 FROM tree WHERE id=%s""",
+            (sid, user_id, new_parent))
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return resp(400, {"error": "Нельзя перенести каталог внутрь его же подкаталога"})
+
+        # Глубина нового места плюс высота ветки не должны превышать 5
+        depth = 1
+        walk = new_parent
+        guard = 0
+        while walk and guard < 10:
+            guard += 1
+            cur.execute("SELECT parent_id FROM library_subjects WHERE id=%s", (walk,))
+            wrow = cur.fetchone()
+            walk = wrow[0] if wrow else None
+            if walk:
+                depth += 1
+        cur.execute(
+            """WITH RECURSIVE tree AS (
+                   SELECT id, 1 AS lvl FROM library_subjects WHERE id=%s AND teacher_id=%s
+                   UNION ALL
+                   SELECT s.id, t.lvl + 1 FROM library_subjects s JOIN tree t ON s.parent_id = t.id
+               ) SELECT COALESCE(MAX(lvl), 1) FROM tree""",
+            (sid, user_id))
+        height = cur.fetchone()[0]
+        if depth + height > 5:
+            cur.close()
+            conn.close()
+            return resp(400, {"error": "Слишком глубокая вложенность — не больше 5 уровней"})
+
+    if new_parent:
+        cur.execute(
+            """SELECT id FROM library_subjects
+               WHERE teacher_id=%s AND parent_id=%s AND lower(name)=lower(%s) AND id<>%s""",
+            (user_id, new_parent, name, sid))
+    else:
+        cur.execute(
+            """SELECT id FROM library_subjects
+               WHERE teacher_id=%s AND parent_id IS NULL AND lower(name)=lower(%s) AND id<>%s""",
+            (user_id, name, sid))
+    if cur.fetchone():
+        cur.close()
+        conn.close()
+        return resp(400, {"error": "На новом месте уже есть каталог с таким названием"})
+
+    cur.execute("UPDATE library_subjects SET parent_id=%s WHERE id=%s AND teacher_id=%s",
+                (new_parent, sid, user_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+    return resp(200, {"ok": True, "id": sid, "parent_id": new_parent, "name": name})
 
 
 def del_subject(event, conn, user_id, role):

@@ -727,6 +727,13 @@ export async function apiRenameLibrarySubject(id: number, name: string, color?: 
   return r.data as { ok?: boolean; error?: string };
 }
 
+export async function apiMoveLibrarySubject(id: number, parentId: number | null) {
+  const r = await request(LIBRARY_URL + "?p=move_subject", {
+    method: "POST", body: JSON.stringify({ id, parent_id: parentId }),
+  });
+  return r.data as { ok?: boolean; id?: number; parent_id?: number | null; name?: string; error?: string };
+}
+
 export async function apiDeleteLibrarySubject(id: number) {
   const r = await request(LIBRARY_URL + "?p=del_subject", {
     method: "POST", body: JSON.stringify({ id }),
