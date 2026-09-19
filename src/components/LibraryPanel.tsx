@@ -306,11 +306,12 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
 
   const createFolder = async () => {
     const name = newFolderName.trim();
-    if (!name || !activeLangId || folderBusy) return;
+    const parent = subjectTab === "all" ? activeLangId : subjectTab;
+    if (!name || !parent || folderBusy) return;
     setFolderBusy(true);
     setErr("");
     try {
-      const res = await apiAddLibrarySubject(name, undefined, activeLangId);
+      const res = await apiAddLibrarySubject(name, undefined, parent as number);
       if (res.ok) {
         setAddingFolder(false);
         setNewFolderName("");
@@ -351,16 +352,30 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   };
 
   const languages = subjects.filter(s => !s.parent_id);
-  const activeLangId = subjectTab === "all"
-    ? null
-    : subjects.find(s => s.id === subjectTab)?.parent_id ?? subjectTab;
-  const activeFolders = subjects.filter(s => s.parent_id === activeLangId);
 
+  // Путь от предмета до выбранного каталога: [предмет, ...подкаталоги]
+  const chainOf = (id?: number | null): LibrarySubject[] => {
+    const out: LibrarySubject[] = [];
+    let cur = subjects.find(s => s.id === id);
+    let guard = 0;
+    while (cur && guard++ < 10) {
+      out.unshift(cur);
+      cur = cur.parent_id ? subjects.find(s => s.id === cur!.parent_id) : undefined;
+    }
+    return out;
+  };
+
+  const activeChain = subjectTab === "all" ? [] : chainOf(subjectTab);
+  const activeLangId = activeChain.length ? activeChain[0].id : null;
+  // Подкаталоги текущего уровня
+  const activeFolders = subjects.filter(s => s.parent_id === subjectTab);
+
+  // Все потомки выбранного узла — файлы во вложенных каталогах тоже показываем
   const inSubject = (id?: number | null) => {
     if (subjectTab === "all") return true;
     if (id === subjectTab) return true;
-    const parent = subjects.find(s => s.id === id)?.parent_id;
-    return parent === subjectTab;
+    if (!id) return false;
+    return chainOf(id).some(s => s.id === subjectTab);
   };
 
   const shown = items.filter(i => {
@@ -373,26 +388,15 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   });
 
   const zipLabel = (() => {
-    const base = subjectTab === "all"
-      ? "Библиотека"
-      : (() => {
-          const s = subjects.find(x => x.id === subjectTab);
-          if (!s) return "Библиотека";
-          const parent = s.parent_id ? subjects.find(x => x.id === s.parent_id) : null;
-          return parent ? `${parent.name} - ${s.name}` : s.name;
-        })();
+    const chain = subjectTab === "all" ? [] : chainOf(subjectTab);
+    const base = chain.length ? chain.map(s => s.name).join(" - ") : "Библиотека";
     const kindPart = tab === "all" ? "" :
       tab === "book" ? " - учебники" : tab === "audio" ? " - аудио" : " - видео";
     return base + kindPart;
   })();
 
   const subjectById = (id?: number | null) => subjects.find(s => s.id === id);
-  const subjectPath = (id?: number | null) => {
-    const s = subjectById(id);
-    if (!s) return "";
-    const parent = s.parent_id ? subjectById(s.parent_id) : null;
-    return parent ? `${parent.name} / ${s.name}` : s.name;
-  };
+  const subjectPath = (id?: number | null) => chainOf(id).map(s => s.name).join(" / ");
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -495,14 +499,23 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
         </div>
       )}
 
-      {!!activeLangId && (!!activeFolders.length || isTeacher) && (
+      {!!activeLangId && (!!activeFolders.length || isTeacher || activeChain.length > 1) && (
         <div className="flex flex-wrap items-center gap-1.5 pl-1">
           <Icon name="CornerDownRight" size={13} className="text-muted-foreground" />
-          <button onClick={() => setSubjectTab(activeLangId)}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-montserrat font-bold border transition-colors
-              ${subjectTab === activeLangId ? "bg-foreground text-background border-transparent" : "text-foreground border-border hover:bg-muted"}`}>
-            Всё
-          </button>
+
+          {/* Путь: предмет / подкаталог / ... */}
+          {activeChain.map((c, i) => (
+            <span key={c.id} className="flex items-center gap-1.5">
+              {i > 0 && <Icon name="ChevronRight" size={11} className="text-muted-foreground" />}
+              <button onClick={() => setSubjectTab(c.id)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-montserrat font-bold border transition-colors
+                  ${subjectTab === c.id
+                    ? "bg-foreground text-background border-transparent"
+                    : "text-foreground border-border hover:bg-muted"}`}>
+                {i === 0 ? "Всё" : c.name}
+              </button>
+            </span>
+          ))}
           {activeFolders.map(f => (
             <span key={f.id}
               className={`flex items-center rounded-lg border transition-colors overflow-hidden
@@ -522,7 +535,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
                 <button onClick={() => setSubjectTab(f.id)}
                   className={`flex items-center gap-1 pl-2.5 pr-2 py-1 text-[11px] font-montserrat font-bold
                     ${subjectTab === f.id ? "" : "hover:bg-muted"}`}>
-                  <Icon name="Folder" size={11} />
+                  <Icon name={subjects.some(x => x.parent_id === f.id) ? "FolderTree" : "Folder"} size={11} />
                   {f.name}
                 </button>
               )}
@@ -555,7 +568,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
                     if (e.key === "Enter") createFolder();
                     if (e.key === "Escape") setAddingFolder(false);
                   }}
-                  placeholder="Название каталога"
+                  placeholder={activeChain.length > 1 ? "Название подкаталога" : "Название каталога"}
                   className="px-2.5 py-1 w-44 rounded-lg border border-dashed border-border bg-card text-[11px] font-ibm outline-none focus:border-primary/40" />
                 <button onClick={createFolder} disabled={folderBusy || !newFolderName.trim()}
                   className="px-2 py-1 rounded-lg red-accent text-white text-[11px] font-montserrat font-bold disabled:opacity-50">
@@ -566,9 +579,12 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
               </span>
             ) : (
               <button onClick={() => { setAddingFolder(true); setNewFolderName(""); }}
+                title={activeChain.length > 1
+                  ? `Подкаталог внутри «${activeChain[activeChain.length - 1].name}»`
+                  : "Новый каталог"}
                 className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-montserrat font-bold border border-dashed border-border text-muted-foreground hover:bg-muted transition-colors">
                 <Icon name="FolderPlus" size={11} />
-                Каталог
+                {activeChain.length > 1 ? "Подкаталог" : "Каталог"}
               </button>
             )
           )}

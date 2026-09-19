@@ -266,10 +266,17 @@ def add_subject(event, conn, user_id, role):
             cur.close()
             conn.close()
             return resp(400, {"error": "Предмет не найден"})
-        if prow[2]:
-            cur.close()
-            conn.close()
-            return resp(400, {"error": "Каталог нельзя вложить в другой каталог"})
+        depth = 1
+        walk = prow[2]
+        while walk:
+            depth += 1
+            if depth > 5:
+                cur.close()
+                conn.close()
+                return resp(400, {"error": "Слишком глубокая вложенность — не больше 5 уровней"})
+            cur.execute("SELECT parent_id FROM library_subjects WHERE id=%s", (walk,))
+            wrow = cur.fetchone()
+            walk = wrow[0] if wrow else None
         parent_id = prow[0]
         if not body.get("color"):
             color = prow[1] or color
@@ -368,8 +375,14 @@ def del_subject(event, conn, user_id, role):
         conn.close()
         return resp(404, {"error": "Не найдено"})
 
-    cur.execute("SELECT id FROM library_subjects WHERE parent_id=%s AND teacher_id=%s", (sid, user_id))
-    ids = [sid] + [r[0] for r in cur.fetchall()]
+    cur.execute(
+        """WITH RECURSIVE tree AS (
+               SELECT id FROM library_subjects WHERE id=%s AND teacher_id=%s
+               UNION ALL
+               SELECT s.id FROM library_subjects s JOIN tree t ON s.parent_id = t.id
+           ) SELECT id FROM tree""",
+        (sid, user_id))
+    ids = [r[0] for r in cur.fetchall()] or [sid]
     in_list = ",".join(str(i) for i in ids)
 
     cur.execute(f"UPDATE library_items SET subject_id=NULL WHERE subject_id IN ({in_list}) AND teacher_id=%s",
