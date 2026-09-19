@@ -56,6 +56,12 @@ def handler(event: dict, context) -> dict:
     if method == "POST" and action == "update":
         return update_homework(event, conn, user_id, role)
 
+    if method == "POST" and action == "edit":
+        return edit_homework(event, conn, user_id, role)
+
+    if method == "POST" and action == "delete":
+        return delete_homework(event, conn, user_id, role)
+
     if method == "POST":
         return create_homework(event, conn, user_id, role)
 
@@ -69,7 +75,7 @@ def get_homework(conn, user_id, role):
         cur.execute(
             """SELECT h.id, h.title, h.description, h.subject,
                       h.due_date, h.status, h.grade, h.teacher_comment,
-                      h.student_answer, h.created_at,
+                      h.student_answer, h.created_at, h.student_id,
                       s.name as student_name, s.avatar as student_avatar
                FROM homework h JOIN users s ON s.id=h.student_id
                WHERE h.teacher_id=%s ORDER BY h.created_at DESC""",
@@ -182,6 +188,97 @@ def update_homework(event, conn, user_id, role):
     conn.commit()
     cur.close(); conn.close()
     return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}
+
+
+def edit_homework(event, conn, user_id, role):
+    """Преподаватель правит название, описание, тему, срок или ученика."""
+    if role not in ("teacher", "admin"):
+        conn.close()
+        return {"statusCode": 403, "headers": CORS,
+                "body": json.dumps({"error": "Только преподаватель может менять задание"}, ensure_ascii=False)}
+
+    body = json.loads(event.get("body") or "{}")
+    hw_id = body.get("id")
+    if not hw_id:
+        conn.close()
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Не указано задание"}, ensure_ascii=False)}
+
+    cur = conn.cursor()
+    cur.execute("SELECT teacher_id, student_id, title FROM homework WHERE id=%s", (int(hw_id),))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "Задание не найдено"}, ensure_ascii=False)}
+    if role != "admin" and row[0] != user_id:
+        cur.close(); conn.close()
+        return {"statusCode": 403, "headers": CORS, "body": json.dumps({"error": "Это задание другого преподавателя"}, ensure_ascii=False)}
+
+    fields, values = [], []
+    title = (body.get("title") or "").strip()
+    if title:
+        fields.append("title=%s"); values.append(title)
+    for key in ("description", "subject"):
+        if body.get(key) is not None:
+            fields.append(f"{key}=%s"); values.append(str(body.get(key)).strip())
+    if body.get("due_date"):
+        fields.append("due_date=%s"); values.append(body.get("due_date"))
+
+    new_student = body.get("student_id")
+    moved_to = None
+    if new_student and int(new_student) != row[1]:
+        fields.append("student_id=%s"); values.append(int(new_student))
+        moved_to = int(new_student)
+
+    if not fields:
+        cur.close(); conn.close()
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Нечего сохранять"}, ensure_ascii=False)}
+
+    fields.append("updated_at=NOW()")
+    values.append(int(hw_id))
+    cur.execute(f"UPDATE homework SET {', '.join(fields)} WHERE id=%s", tuple(values))
+
+    text = f"Задание изменено: {title or row[2]}"
+    cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'homework')",
+                (moved_to or row[1], text))
+    if moved_to:
+        cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'homework')",
+                    (row[1], f"Задание больше не закреплено за вами: {title or row[2]}"))
+
+    conn.commit()
+    cur.close(); conn.close()
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "id": int(hw_id)}, ensure_ascii=False)}
+
+
+def delete_homework(event, conn, user_id, role):
+    """Удалить задание вместе с уведомлениями о нём."""
+    if role not in ("teacher", "admin"):
+        conn.close()
+        return {"statusCode": 403, "headers": CORS,
+                "body": json.dumps({"error": "Только преподаватель может удалять задания"}, ensure_ascii=False)}
+
+    body = json.loads(event.get("body") or "{}")
+    hw_id = body.get("id")
+    if not hw_id:
+        conn.close()
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Не указано задание"}, ensure_ascii=False)}
+
+    cur = conn.cursor()
+    cur.execute("SELECT teacher_id, student_id, title FROM homework WHERE id=%s", (int(hw_id),))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "Задание не найдено"}, ensure_ascii=False)}
+    if role != "admin" and row[0] != user_id:
+        cur.close(); conn.close()
+        return {"statusCode": 403, "headers": CORS, "body": json.dumps({"error": "Это задание другого преподавателя"}, ensure_ascii=False)}
+
+    cur.execute("DELETE FROM homework WHERE id=%s", (int(hw_id),))
+    cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'homework')",
+                (row[1], f"Задание отменено: {row[2]}"))
+    conn.commit()
+    cur.close(); conn.close()
+    return {"statusCode": 200, "headers": CORS,
+            "body": json.dumps({"ok": True, "title": row[2]}, ensure_ascii=False)}
 
 
 def get_students(conn):

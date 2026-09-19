@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { type User } from "@/pages/LoginPage";
-import { apiGetHomework, apiUpdateHomework, apiCreateHomework, apiGetStudents, apiGetDecks, apiDeleteDeck, type HomeworkItem, type StudentInfo, type CardDeck } from "@/lib/api";
+import { apiGetHomework, apiUpdateHomework, apiCreateHomework, apiEditHomework, apiDeleteHomework,
+  apiGetStudents, apiGetDecks, apiDeleteDeck, type HomeworkItem, type StudentInfo, type CardDeck } from "@/lib/api";
 import Icon from "@/components/ui/icon";
 import CardDeckDialog from "@/components/cards/CardDeckDialog";
 import DeckStudyDialog from "@/components/cards/DeckStudyDialog";
@@ -33,6 +34,9 @@ export default function HomeworkPage({ user }: { user: User }) {
   const [showCards, setShowCards] = useState(false);
   const [studyDeck, setStudyDeck] = useState<CardDeck | null>(null);
   const [delDeck, setDelDeck] = useState<CardDeck | null>(null);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [delHw, setDelHw] = useState<HomeworkItem | null>(null);
+  const [msg, setMsg] = useState("");
 
   const load = () => {
     apiGetHomework().then(res => {
@@ -87,14 +91,52 @@ export default function HomeworkPage({ user }: { user: User }) {
     setSaving(false);
   };
 
+  const resetForm = () => {
+    setForm({ student_id: 0, title: "", description: "", subject: "", due_date: "" });
+    setEditId(null);
+    setShowAdd(false);
+  };
+
   const handleCreate = async () => {
     if (!form.title || !form.student_id) return;
     setSaving(true);
-    await apiCreateHomework(form);
+    if (editId) {
+      const res = await apiEditHomework({ id: editId, ...form });
+      if (res.ok) setMsg("Задание обновлено");
+    } else {
+      await apiCreateHomework(form);
+      setMsg("Задание создано");
+    }
     load();
-    setShowAdd(false);
-    setForm({ student_id: 0, title: "", description: "", subject: "", due_date: "" });
+    resetForm();
     setSaving(false);
+    setTimeout(() => setMsg(""), 3000);
+  };
+
+  const startEdit = (hw: HomeworkItem) => {
+    setEditId(hw.id);
+    setForm({
+      student_id: hw.student_id || 0,
+      title: hw.title || "",
+      description: hw.description || "",
+      subject: hw.subject || "",
+      due_date: (hw.due_date || "").slice(0, 10),
+    });
+    setShowAdd(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleDelete = async () => {
+    if (!delHw) return;
+    setSaving(true);
+    const res = await apiDeleteHomework(delHw.id);
+    setSaving(false);
+    setDelHw(null);
+    if (res.ok) {
+      setMsg(`Задание удалено: ${res.title || delHw.title}`);
+      setTimeout(() => setMsg(""), 3000);
+      load();
+    }
   };
 
   const formatDate = (d: string) => {
@@ -107,7 +149,7 @@ export default function HomeworkPage({ user }: { user: User }) {
       {/* Teacher: create */}
       {(user.role === "teacher" || user.role === "admin") && (
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => setShowAdd(!showAdd)}
+          <button onClick={() => { if (showAdd) resetForm(); else { setEditId(null); setShowAdd(true); } }}
             className="flex items-center gap-2 px-4 py-2.5 red-accent text-white rounded-xl text-sm font-montserrat font-medium hover:opacity-90 transition-opacity">
             <Icon name="Plus" size={16} />
             Создать задание
@@ -166,7 +208,10 @@ export default function HomeworkPage({ user }: { user: User }) {
 
       {showAdd && (
         <div className="bg-card rounded-xl border border-border p-5 space-y-3 animate-scale-in">
-          <p className="font-montserrat font-bold text-sm text-foreground">Новое задание</p>
+          <p className="font-montserrat font-bold text-sm text-foreground flex items-center gap-2">
+            <Icon name={editId ? "Pencil" : "Plus"} size={15} className="text-primary" />
+            {editId ? "Редактирование задания" : "Новое задание"}
+          </p>
           <select value={form.student_id} onChange={e => setForm({ ...form, student_id: parseInt(e.target.value) })}
             className="w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40">
             <option value={0}>Выберите студента</option>
@@ -185,10 +230,25 @@ export default function HomeworkPage({ user }: { user: User }) {
             <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })}
               className="px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40" />
           </div>
-          <button onClick={handleCreate} disabled={saving}
-            className="px-5 py-2 red-accent text-white rounded-lg text-sm font-montserrat font-medium hover:opacity-90 disabled:opacity-60">
-            {saving ? "Создаю..." : "Создать задание"}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={handleCreate} disabled={saving}
+              className="px-5 py-2 red-accent text-white rounded-lg text-sm font-montserrat font-medium hover:opacity-90 disabled:opacity-60">
+              {saving ? "Сохраняю..." : editId ? "Сохранить изменения" : "Создать задание"}
+            </button>
+            {editId && (
+              <button onClick={resetForm} disabled={saving}
+                className="px-4 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                Отмена
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {msg && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200">
+          <Icon name="Check" size={14} className="text-green-600 flex-shrink-0" />
+          <p className="text-xs text-green-700 font-ibm">{msg}</p>
         </div>
       )}
 
@@ -246,6 +306,21 @@ export default function HomeworkPage({ user }: { user: User }) {
 
                 {isOpen && (
                   <div className="px-5 pb-5 border-t border-border animate-fade-in">
+                    {(user.role === "teacher" || user.role === "admin") && (
+                      <div className="flex gap-2 mt-4">
+                        <button onClick={() => startEdit(hw)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors">
+                          <Icon name="Pencil" size={13} />
+                          Редактировать
+                        </button>
+                        <button onClick={() => setDelHw(hw)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-xs font-montserrat font-bold text-red-600 hover:bg-red-50 transition-colors">
+                          <Icon name="Trash2" size={13} />
+                          Удалить
+                        </button>
+                      </div>
+                    )}
+
                     <p className="text-sm text-foreground font-ibm mt-4 leading-relaxed">{hw.description}</p>
 
                     {hw.student_answer && (
@@ -354,6 +429,29 @@ export default function HomeworkPage({ user }: { user: User }) {
               <button onClick={removeDeck}
                 className="flex-1 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-bold hover:bg-red-700 transition-colors">
                 Удалить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {delHw && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => !saving && setDelHw(null)} />
+          <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 animate-scale-in">
+            <h2 className="font-montserrat font-bold text-base text-foreground mb-1">Удалить задание?</h2>
+            <p className="text-sm text-muted-foreground font-ibm mb-4">
+              «{delHw.title}» исчезнет у ученика{delHw.student_name ? ` ${delHw.student_name}` : ""}.
+              {delHw.student_answer ? " Ответ и оценка тоже будут стёрты." : ""} Отменить нельзя.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => setDelHw(null)} disabled={saving}
+                className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60">
+                Отмена
+              </button>
+              <button onClick={handleDelete} disabled={saving}
+                className="flex-1 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-bold hover:bg-red-700 transition-colors disabled:opacity-60">
+                {saving ? "Удаляю..." : "Удалить"}
               </button>
             </div>
           </div>

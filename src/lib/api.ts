@@ -178,6 +178,19 @@ export async function apiCreateHomework(data: CreateHomeworkData) {
   return r.data as { ok?: boolean; id?: number; error?: string };
 }
 
+export async function apiEditHomework(data: {
+  id: number; title?: string; description?: string; subject?: string;
+  due_date?: string; student_id?: number;
+}) {
+  const r = await request(HOMEWORK_URL + "?p=edit", { method: "POST", body: JSON.stringify(data) });
+  return r.data as { ok?: boolean; id?: number; error?: string };
+}
+
+export async function apiDeleteHomework(id: number) {
+  const r = await request(HOMEWORK_URL + "?p=delete", { method: "POST", body: JSON.stringify({ id }) });
+  return r.data as { ok?: boolean; title?: string; error?: string };
+}
+
 export async function apiUpdateHomework(data: UpdateHomeworkData) {
   const r = await request(HOMEWORK_URL + "?p=update", { method: "POST", body: JSON.stringify(data) });
   return r.data as { ok?: boolean; error?: string };
@@ -500,6 +513,7 @@ export interface HomeworkItem {
   grade?: number;
   teacher_comment?: string;
   student_answer?: string;
+  student_id?: number;
   student_name?: string;
   student_avatar?: string;
   teacher_name?: string;
