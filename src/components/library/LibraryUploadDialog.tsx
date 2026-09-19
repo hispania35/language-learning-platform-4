@@ -33,6 +33,8 @@ type Row = {
   progress: number;
   state: "wait" | "run" | "done" | "fail";
   error?: string;
+  /** Путь папок относительно предмета, например ["Lagune", "Lektion 1"] */
+  path?: string[];
 };
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -77,23 +79,29 @@ export default function LibraryUploadDialog({
   const subjectName = folderLabel ? `${langName} / ${folderLabel}` : langName;
   const targetId = subjectId ?? langId;
 
+  const relPath = (f: File) =>
+    (f as File & { webkitRelativePath?: string }).webkitRelativePath || "";
+
   const addFiles = (list: FileList, fromFolder = false) => {
     const picked = Array.from(list).filter(f => f.size > 0 && !f.name.startsWith("."));
+
     if (fromFolder) {
-      const rel = (picked[0] as File & { webkitRelativePath?: string })?.webkitRelativePath || "";
-      const dir = rel.split("/")[0];
-      if (dir) {
-        setFolderName(dir);
-        // Подставляем имя папки как название каталога, если он ещё не выбран
-        if (!subjectId && !newSubject.trim()) {
+      const dirs = Array.from(new Set(
+        picked.map(f => relPath(f).split("/")[0]).filter(Boolean)
+      ));
+      if (dirs.length) {
+        setFolderName(dirs.join(", "));
+        // Имя корневой папки подставляем, только если она одна
+        if (dirs.length === 1 && !subjectId && !newSubject.trim()) {
           const exists = allSubjects.find(
-            x => x.parent_id === langId && x.name.toLowerCase() === dir.toLowerCase()
+            x => x.parent_id === langId && x.name.toLowerCase() === dirs[0].toLowerCase()
           );
           if (exists) setSubjectId(exists.id);
-          else setNewSubject(dir);
+          else setNewSubject(dirs[0]);
         }
       }
     }
+
     const limit = maxMb * 1024 * 1024;
     const tooBig = picked.filter(f => f.size > limit);
     const ok = picked.filter(f => f.size <= limit);
@@ -103,16 +111,25 @@ export default function LibraryUploadDialog({
     setSummary(null);
     setRetried(false);
     setRows(prev => {
-      const have = new Set(prev.map(r => r.file.name + r.file.size));
-      const fresh = ok.filter(f => !have.has(f.name + f.size));
+      const have = new Set(prev.map(r => (r.path || []).join("/") + "|" + r.file.name + r.file.size));
+      const fresh = ok.filter(f => {
+        const parts = relPath(f).split("/").slice(0, -1);
+        return !have.has(parts.join("/") + "|" + f.name + f.size);
+      });
       return [
         ...prev,
-        ...fresh.map(f => ({
-          file: f,
-          title: f.name.replace(/\.[^.]+$/, ""),
-          progress: 0,
-          state: "wait" as const,
-        })),
+        ...fresh.map(f => {
+          // Путь без имени файла; если папок нет — пустой
+          // Сервер держит до 5 уровней вложенности — глубже не уходим
+          const parts = relPath(f).split("/").slice(0, -1).filter(Boolean).slice(0, 3);
+          return {
+            file: f,
+            title: f.name.replace(/\.[^.]+$/, ""),
+            progress: 0,
+            state: "wait" as const,
+            path: fromFolder ? parts : [],
+          };
+        }),
       ];
     });
   };
@@ -142,21 +159,76 @@ export default function LibraryUploadDialog({
     }
   };
 
+  /** Создаёт (или находит) цепочку каталогов и возвращает id последнего */
+  const ensurePath = async (
+    parts: string[],
+    cache: Map<string, number>,
+    known: LibrarySubject[],
+  ): Promise<number | null> => {
+    let parent = targetId;
+    let key = "";
+    for (const raw of parts) {
+      const name = raw.trim();
+      if (!name) continue;
+      key = key ? `${key}/${name}` : name;
+
+      const cached = cache.get(key);
+      if (cached) { parent = cached; continue; }
+
+      const exists = known.find(
+        x => x.parent_id === parent && x.name.toLowerCase() === name.toLowerCase()
+      );
+      if (exists) {
+        cache.set(key, exists.id);
+        parent = exists.id;
+        continue;
+      }
+
+      const res = await apiAddLibrarySubject(name, undefined, parent);
+      if (!res.ok || !res.id) return parent;
+      const created = {
+        id: res.id, name: res.name || name, color: res.color, parent_id: parent,
+      } as LibrarySubject;
+      known.push(created);
+      setAllSubjects(prev => prev.some(x => x.id === created.id) ? prev : [...prev, created]);
+      cache.set(key, created.id);
+      parent = created.id;
+    }
+    return parent;
+  };
+
   const runUpload = async (indexes: number[], isRetry: boolean) => {
     setBusy(true);
     setErr("");
     setSummary(null);
     let okCount = rows.filter(r => r.state === "done").length;
     const failedRows: Row[] = [];
+    const pathCache = new Map<string, number>();
+    const known = [...allSubjects];
 
     for (const i of indexes) {
       const row = rows[i];
       patch(i, { state: "run", progress: 0, error: "" });
+
+      // Папки из пути файла превращаем в каталоги библиотеки
+      let dest = targetId;
+      const parts = row.path || [];
+      if (parts.length) {
+        // Если корневая папка уже выбрана как каталог — не дублируем её
+        const skipFirst =
+          !!subjectId &&
+          allSubjects.find(x => x.id === subjectId)?.name.toLowerCase() === parts[0].toLowerCase();
+        const rest = skipFirst ? parts.slice(1) : parts;
+        if (rest.length) {
+          dest = await ensurePath(rest, pathCache, known) ?? targetId;
+        }
+      }
+
       const meta = {
         title: row.title.trim() || row.file.name,
         author: author.trim(),
         description: description.trim(),
-        subject_id: targetId,
+        subject_id: dest,
       };
       const big = directUpload && row.file.size > SMALL_MB * 1024 * 1024;
       let lastError = "";
@@ -219,6 +291,16 @@ export default function LibraryUploadDialog({
     const idx = rows.map((r, i) => (r.state === "fail" ? i : -1)).filter(i => i >= 0);
     if (idx.length) runUpload(idx, true);
   };
+
+  // Сколько разных папок встретилось — столько каталогов создадим
+  const pathCount = (() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      const parts = r.path || [];
+      for (let i = 1; i <= parts.length; i++) set.add(parts.slice(0, i).join("/"));
+    }
+    return set.size;
+  })();
 
   const counts = rows.reduce((acc, r) => {
     const k = kindWord(r.file.type);
@@ -354,6 +436,14 @@ export default function LibraryUploadDialog({
           </p>
         )}
 
+        {!!pathCount && (
+          <p className="text-[11px] text-primary font-ibm mt-1 flex items-start gap-1.5">
+            <Icon name="FolderTree" size={12} className="flex-shrink-0 mt-0.5" />
+            Папки станут каталогами: {pathCount} {plural(pathCount, "каталог", "каталога", "каталогов")} —
+            файлы разложатся по ним автоматически
+          </p>
+        )}
+
         {!!rows.length && (
           <div className="mt-2 space-y-2 max-h-56 overflow-y-auto">
             {rows.map((r, i) => (
@@ -376,6 +466,12 @@ export default function LibraryUploadDialog({
                 </div>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[11px] text-muted-foreground font-ibm">{fmtSize(r.file.size)}</span>
+                  {!!r.path?.length && (
+                    <span className="text-[11px] text-muted-foreground font-ibm flex items-center gap-1 min-w-0">
+                      <Icon name="Folder" size={10} className="flex-shrink-0" />
+                      <span className="truncate">{r.path.join(" / ")}</span>
+                    </span>
+                  )}
                   {r.state === "run" && (
                     <span className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                       <span className="block h-full red-accent transition-all duration-200"
