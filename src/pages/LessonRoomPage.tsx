@@ -8,6 +8,13 @@ import { apiGetCalendar, apiStartLesson, type Lesson } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
 import ChatPage from "@/pages/ChatPage";
 
+const studentNames = (l: Lesson) => {
+  const names = (l.students || []).map(s => s.name).filter(Boolean);
+  if (!names.length) return "";
+  if (names.length <= 2) return names.join(", ");
+  return `${names.slice(0, 2).join(", ")} и ещё ${names.length - 2}`;
+};
+
 export const buildRoomName = (lesson?: Lesson | null) =>
   lesson ? `hispania-lesson-${lesson.id}` : "hispania-room";
 
@@ -257,7 +264,8 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-5">
+    <div className="page-scroll h-full overflow-y-auto overscroll-contain">
+    <div className="max-w-4xl mx-auto space-y-5 pb-6">
       <div className="bg-card rounded-xl border border-border p-6 text-center">
         <div className="w-14 h-14 rounded-2xl red-accent flex items-center justify-center mx-auto mb-3">
           <Icon name="Video" size={26} className="text-white" />
@@ -293,9 +301,12 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="font-montserrat font-bold text-sm text-foreground truncate">{l.topic}</p>
+                  <p className="text-xs text-primary font-ibm font-medium truncate"
+                    title={(l.students || []).map(st => st.name).join(", ")}>
+                    {studentNames(l) || "Ученик не назначен"}
+                  </p>
                   <p className="text-xs text-muted-foreground font-ibm">
                     {l.lesson_type} · {l.duration_min} мин
-                    {l.students && l.students.length > 0 && ` · ${l.students.length} уч.`}
                   </p>
                 </div>
                 <button onClick={() => startLesson(l)}
@@ -320,6 +331,10 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
                 <Icon name="CalendarDays" size={16} className="text-muted-foreground flex-shrink-0" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-ibm text-foreground truncate">{l.topic}</p>
+                  <p className="text-xs text-primary font-ibm font-medium truncate"
+                    title={(l.students || []).map(st => st.name).join(", ")}>
+                    {studentNames(l) || "Ученик не назначен"}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {new Date(l.lesson_date + "T12:00:00").toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} · {l.lesson_time.slice(0, 5)}
                   </p>
@@ -347,6 +362,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
           </button>
         </div>
       </div>
+    </div>
     </div>
   );
 }

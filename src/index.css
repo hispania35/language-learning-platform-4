@@ -210,6 +210,24 @@
     background: hsl(42 95% 52% / 0.75);
   }
 
+  .page-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+  .page-scroll::-webkit-scrollbar {
+    width: 8px;
+  }
+  .page-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .page-scroll::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.35);
+    border-radius: 999px;
+  }
+  .page-scroll::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--primary) / 0.6);
+  }
+
   .progress-bar {
     background: linear-gradient(90deg, hsl(0 72% 35%), hsl(42 95% 52%));
     border-radius: 999px;

@@ -173,7 +173,7 @@ export default function App() {
             onSettingsOpenChange={setSettingsOpen}
           />
           </div>
-          <main className={`flex-1 min-h-0 p-3 sm:p-4 md:p-6 ${activePage === "chat" || activePage === "lesson" ? "overflow-hidden" : "overflow-y-auto"} ${kbOpen ? "pt-2 pb-2" : ""}`}>
+          <main className={`page-scroll flex-1 min-h-0 p-3 sm:p-4 md:p-6 ${activePage === "chat" || activePage === "lesson" ? "overflow-hidden" : "overflow-y-auto"} ${kbOpen ? "pt-2 pb-2" : ""}`}>
             <div className={`animate-fade-in ${activePage === "lesson" || activePage === "chat" ? "h-full" : ""}`} key={activePage}>
               {renderPage()}
             </div>
