@@ -4,6 +4,7 @@ import LibraryUploadDialog from "@/components/library/LibraryUploadDialog";
 import SubjectsDialog from "@/components/library/SubjectsDialog";
 import MoveSubjectDialog from "@/components/library/MoveSubjectDialog";
 import MoveItemsDialog from "@/components/library/MoveItemsDialog";
+import PlaylistBar from "@/components/library/PlaylistBar";
 import {
   apiGetLibrary, apiDeleteLibraryItem, apiAssignLibraryItem,
   apiGetStudents, apiGetGroups,
@@ -62,6 +63,10 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const [bulkAssign, setBulkAssign] = useState(false);
   const [bulkDone, setBulkDone] = useState(0);
   const [playing, setPlaying] = useState<number | null>(null);
+  const [playlistMode, setPlaylistMode] = useState(
+    () => localStorage.getItem("lib_playlist_mode") === "1"
+  );
+  const [playlistFrom, setPlaylistFrom] = useState<number | null>(null);
 
   const [editFolderId, setEditFolderId] = useState<number | null>(null);
   const [editFolderName, setEditFolderName] = useState("");
@@ -408,6 +413,9 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
     return okTab && okSubject && okSearch;
   });
 
+  // Аудио текущего раздела — это и есть плейлист
+  const audioShown = shown.filter(i => i.kind === "audio");
+
   const zipLabel = (() => {
     const chain = subjectTab === "all" ? [] : chainOf(subjectTab);
     const base = chain.length ? chain.map(s => s.name).join(" - ") : "Библиотека";
@@ -420,7 +428,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const subjectPath = (id?: number | null) => chainOf(id).map(s => s.name).join(" / ");
 
   return (
-    <div className="space-y-4 animate-fade-in">
+    <div className={`space-y-4 animate-fade-in ${playlistFrom !== null ? "pb-28" : ""}`}>
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="flex items-center gap-2 bg-card rounded-xl border border-border px-4 py-2.5 flex-1">
           <Icon name="Search" size={16} className="text-muted-foreground flex-shrink-0" />
@@ -648,6 +656,36 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
         </div>
       )}
 
+      {!loading && !selectMode && audioShown.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl border border-border bg-muted/20">
+          <Icon name="ListMusic" size={15} className="text-primary flex-shrink-0" />
+          <span className="text-xs font-ibm text-muted-foreground">
+            Аудио в каталоге: {audioShown.length}
+          </span>
+          <div className="ml-auto flex bg-card rounded-lg border border-border p-0.5">
+            <button onClick={() => { setPlaylistMode(false); localStorage.setItem("lib_playlist_mode", "0"); setPlaylistFrom(null); }}
+              className={`px-3 py-1 rounded-md text-[11px] font-montserrat font-bold transition-colors ${
+                !playlistMode ? "red-accent text-white" : "text-muted-foreground hover:text-foreground"
+              }`}>
+              По одному
+            </button>
+            <button onClick={() => { setPlaylistMode(true); localStorage.setItem("lib_playlist_mode", "1"); setPlaying(null); }}
+              className={`px-3 py-1 rounded-md text-[11px] font-montserrat font-bold transition-colors ${
+                playlistMode ? "red-accent text-white" : "text-muted-foreground hover:text-foreground"
+              }`}>
+              Плейлистом
+            </button>
+          </div>
+          {playlistMode && (
+            <button onClick={() => setPlaylistFrom(audioShown[0].id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card text-[11px] font-montserrat font-bold text-foreground hover:bg-muted transition-colors">
+              <Icon name="Play" size={12} />
+              Слушать всё подряд
+            </button>
+          )}
+        </div>
+      )}
+
       {!loading && shown.length > 1 && !selectMode && (
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl border border-border bg-muted/20">
           <Icon name="FolderDown" size={15} className="text-primary flex-shrink-0" />
@@ -744,15 +782,31 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
 
               {!selectMode && (item.kind === "audio" || item.kind === "video") && (
                 <div className="mt-3">
-                  {playing === item.id ? (
+                  {playing === item.id && !(playlistMode && item.kind === "audio") ? (
                     item.kind === "video"
                       ? <video controls autoPlay src={item.file_url} className="w-full rounded-lg bg-black max-h-64" />
                       : <audio controls autoPlay src={item.file_url} className="w-full h-9" />
                   ) : (
-                    <button onClick={() => setPlaying(item.id)}
-                      className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
-                      <Icon name="Play" size={15} />
-                      {item.kind === "video" ? "Смотреть" : "Слушать"}
+                    <button
+                      onClick={() => {
+                        if (playlistMode && item.kind === "audio") {
+                          setPlaying(null);
+                          setPlaylistFrom(item.id);
+                        } else {
+                          setPlaylistFrom(null);
+                          setPlaying(item.id);
+                        }
+                      }}
+                      className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg border text-sm font-montserrat font-medium transition-colors
+                        ${playlistFrom === item.id
+                          ? "border-primary text-primary bg-primary/5"
+                          : "border-border text-foreground hover:bg-muted"}`}>
+                      <Icon name={playlistFrom === item.id ? "Volume2" : "Play"} size={15} />
+                      {item.kind === "video"
+                        ? "Смотреть"
+                        : playlistMode
+                          ? (playlistFrom === item.id ? "Играет" : "Слушать подряд")
+                          : "Слушать"}
                     </button>
                   )}
                 </div>
@@ -914,6 +968,15 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
       )}
 
       {/* Удаление каталога */}
+      {playlistFrom !== null && !!audioShown.length && (
+        <PlaylistBar
+          tracks={audioShown}
+          startId={playlistFrom}
+          title={zipLabel}
+          onClose={() => setPlaylistFrom(null)}
+        />
+      )}
+
       {moveItems && (
         <MoveItemsDialog
           count={selected.length}
