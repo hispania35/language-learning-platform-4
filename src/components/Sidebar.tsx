@@ -57,9 +57,8 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onClose, user,
         {/* Logo */}
         <div className="px-6 py-5 border-b border-sidebar-border">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg gold-accent flex items-center justify-center flex-shrink-0">
-              <span className="text-foreground font-montserrat font-black text-sm">H</span>
-            </div>
+            <img src="/logo.png" alt="Hispania 35"
+              className="w-9 h-9 rounded-lg object-cover flex-shrink-0 bg-white" />
             <div>
               <p className="font-montserrat font-bold text-sidebar-foreground text-sm leading-tight">Hispania 35</p>
               <p className="text-xs text-sidebar-foreground/50">Платформа обучения</p>

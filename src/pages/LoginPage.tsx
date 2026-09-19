@@ -187,9 +187,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
         {/* Logo */}
         <div className="relative flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl gold-accent flex items-center justify-center">
-            <span className="font-montserrat font-black text-foreground text-base">H</span>
-          </div>
+          <img src="/logo.png" alt="Hispania 35"
+            className="w-10 h-10 rounded-xl object-cover bg-white" />
           <div>
             <p className="font-montserrat font-black text-white text-lg leading-none">Hispania 35</p>
             <p className="text-white/60 text-xs font-ibm">Языковая студия</p>
