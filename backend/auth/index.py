@@ -12,7 +12,7 @@ import os
 import secrets
 import psycopg2
 from datetime import datetime, timedelta
-from mailer import send_email, _wrap, welcome_access_email, new_password_email
+from mailer import send_email, _wrap, welcome_access_email, new_password_email, verify_email_letter
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -47,6 +47,12 @@ def handler(event: dict, context) -> dict:
         return reset_do(event)
     if method == "POST" and action == "change_password":
         return change_password(event)
+    if method == "POST" and action == "verify_email":
+        return verify_email(event)
+    if method == "POST" and action == "resend_verify":
+        return resend_verify(event)
+    if method == "POST" and action == "set_registration":
+        return set_registration(event)
     if method == "POST" and action == "change_admin_email":
         return change_admin_email(event)
     if method == "POST" and action == "admin_set_password":
@@ -63,6 +69,8 @@ def handler(event: dict, context) -> dict:
             return reset_list(event)
         if params.get("p") == "people":
             return admin_people(event)
+        if params.get("p") == "public":
+            return public_settings(event)
         return me(event)
 
     return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "Not found"})}
@@ -79,7 +87,8 @@ def login(event):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "SELECT id, name, role, level, avatar, COALESCE(twofa_email,'') FROM users WHERE email=%s AND password_hash=%s",
+        """SELECT id, name, role, level, avatar, COALESCE(twofa_email,''), COALESCE(email_verified, TRUE)
+           FROM users WHERE email=%s AND password_hash=%s""",
         (email, password)
     )
     row = cur.fetchone()
@@ -87,7 +96,14 @@ def login(event):
         cur.close(); conn.close()
         return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Неверный логин или пароль"})}
 
-    user_id, name, role, level, avatar, twofa_email = row
+    user_id, name, role, level, avatar, twofa_email, verified = row
+
+    if not verified:
+        cur.close(); conn.close()
+        return {"statusCode": 403, "headers": CORS, "body": json.dumps({
+            "need_verify": True, "email": email,
+            "error": "Подтвердите почту — мы отправили вам письмо со ссылкой"
+        })}
 
     # Администратор входит только с одноразовым кодом из письма
     if role == "admin" and twofa_email:
@@ -139,6 +155,10 @@ def register(event):
     if role not in ("student", "teacher"):
         role = "student"
 
+    if not _registration_open():
+        return {"statusCode": 403, "headers": CORS,
+                "body": json.dumps({"error": "Регистрация временно закрыта. Обратитесь к администратору школы."})}
+
     # Генерируем аватар из первых букв имени
     parts = name.split()
     avatar = (parts[0][0] + (parts[1][0] if len(parts) > 1 else parts[0][1])).upper()
@@ -156,25 +176,26 @@ def register(event):
         trow = cur.fetchone()
         teacher_id = trow[0] if trow else None
 
+    vtoken = secrets.token_hex(24)
     cur.execute(
-        "INSERT INTO users (email, password_hash, name, role, level, avatar, teacher_id) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (email, password, name, role, level if role == "student" else None, avatar, teacher_id)
+        """INSERT INTO users (email, password_hash, name, role, level, avatar, teacher_id,
+                              email_verified, verify_token, verify_sent_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s, FALSE, %s, NOW()) RETURNING id""",
+        (email, password, name, role, level if role == "student" else None, avatar, teacher_id, vtoken)
     )
     user_id = cur.fetchone()[0]
-
-    token = secrets.token_hex(32)
-    expires = datetime.now() + timedelta(days=30)
-    cur.execute("INSERT INTO sessions (user_id, token, expires_at) VALUES (%s,%s,%s)", (user_id, token, expires))
     conn.commit()
     cur.close(); conn.close()
 
+    sent = send_email(
+        email, "Подтвердите почту — Hispania 35",
+        verify_email_letter(name, _verify_link(event, vtoken)),
+        "Подтвердите адрес почты, перейдя по ссылке в письме"
+    )
     return {
         "statusCode": 200,
         "headers": CORS,
-        "body": json.dumps({
-            "token": token,
-            "user": {"id": user_id, "name": name, "role": role, "level": level if role == "student" else None, "avatar": avatar}
-        })
+        "body": json.dumps({"need_verify": True, "email": email, "mail_sent": sent})
     }
 
 
@@ -664,8 +685,8 @@ def admin_add_user(event):
         teacher_id = trow[0] if trow else None
 
     cur.execute(
-        """INSERT INTO users (email, password_hash, name, role, level, avatar, teacher_id, phone, telegram, note)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        """INSERT INTO users (email, password_hash, name, role, level, avatar, teacher_id, phone, telegram, note, email_verified)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, TRUE) RETURNING id""",
         (email, password, name, role, level if role == "student" else None,
          _avatar_from(name), teacher_id if role == "student" else None,
          (body.get("phone") or "").strip(), (body.get("telegram") or "").strip(),
@@ -791,3 +812,113 @@ def admin_delete_user(event):
     cur.execute("DELETE FROM users WHERE id=%s", (target,))
     conn.commit(); cur.close(); conn.close()
     return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "name": row[1]})}
+
+
+# ──────────────────── Подтверждение почты и доступ к регистрации ────────────
+
+def _registration_open() -> bool:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM platform_settings WHERE key='registration_open'")
+    row = cur.fetchone()
+    cur.close(); conn.close()
+    return (row[0] if row else "1") == "1"
+
+
+def _verify_link(event, token: str) -> str:
+    base = _site_url(event)
+    return f"{base}/?verify={token}" if base else f"/?verify={token}"
+
+
+def public_settings(event):
+    """Публичные настройки страницы входа: открыта ли регистрация."""
+    return {"statusCode": 200, "headers": CORS,
+            "body": json.dumps({"registration_open": _registration_open()})}
+
+
+def set_registration(event):
+    """Администратор включает или выключает кнопку регистрации."""
+    admin_id, deny = _admin_only(event)
+    if deny:
+        return deny
+    body = json.loads(event.get("body") or "{}")
+    value = "1" if body.get("open") else "0"
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """INSERT INTO platform_settings (key, value, updated_at) VALUES ('registration_open', %s, NOW())
+           ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()""",
+        (value,)
+    )
+    conn.commit(); cur.close(); conn.close()
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "registration_open": value == "1"})}
+
+
+def verify_email(event):
+    """Подтверждение почты по ссылке из письма — сразу пускаем в кабинет."""
+    body = json.loads(event.get("body") or "{}")
+    token = (body.get("token") or "").strip()
+    if not token:
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Ссылка неполная"})}
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, name, role, level, avatar, COALESCE(email_verified, TRUE),
+                  verify_sent_at > NOW() - INTERVAL '24 hours'
+           FROM users WHERE verify_token=%s""",
+        (token,)
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return {"statusCode": 404, "headers": CORS,
+                "body": json.dumps({"error": "Ссылка недействительна или уже использована"})}
+    if not row[6]:
+        cur.close(); conn.close()
+        return {"statusCode": 410, "headers": CORS,
+                "body": json.dumps({"error": "Срок действия ссылки истёк, запросите новое письмо", "expired": True})}
+
+    user_id = row[0]
+    cur.execute("UPDATE users SET email_verified=TRUE, verify_token=NULL WHERE id=%s", (user_id,))
+
+    cur.execute("SELECT id FROM users WHERE role IN ('teacher','admin')")
+    staff = [r[0] for r in cur.fetchall()]
+    if staff:
+        text = f"{row[1]} зарегистрировался и подтвердил почту"
+        values = ",".join(cur.mogrify("(%s,%s,'system')", (sid, text)).decode() for sid in staff)
+        cur.execute(f"INSERT INTO notifications (user_id, text, type) VALUES {values}")
+
+    return issue_session(conn, cur, user_id, row[1], row[2], row[3], row[4])
+
+
+def resend_verify(event):
+    """Повторная отправка письма с подтверждением почты."""
+    body = json.loads(event.get("body") or "{}")
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Укажите почту"})}
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT id, name, COALESCE(email_verified, TRUE) FROM users WHERE email=%s", (email,)
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "Пользователь не найден"})}
+    if row[2]:
+        cur.close(); conn.close()
+        return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "already": True})}
+
+    vtoken = secrets.token_hex(24)
+    cur.execute("UPDATE users SET verify_token=%s, verify_sent_at=NOW() WHERE id=%s", (vtoken, row[0]))
+    conn.commit(); cur.close(); conn.close()
+
+    sent = send_email(
+        email, "Подтвердите почту — Hispania 35",
+        verify_email_letter(row[1], _verify_link(event, vtoken)),
+        "Подтвердите адрес почты, перейдя по ссылке в письме"
+    )
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "mail_sent": sent})}

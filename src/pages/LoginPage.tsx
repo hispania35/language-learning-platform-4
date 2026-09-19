@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Icon from "@/components/ui/icon";
 import Footer from "@/components/Footer";
-import { apiLogin, apiRegister, apiResetRequest, apiVerifyCode, apiResendCode } from "@/lib/api";
+import { apiLogin, apiRegister, apiResetRequest, apiVerifyCode, apiResendCode,
+  apiVerifyEmail, apiResendVerify, apiPublicSettings } from "@/lib/api";
 
 export type UserRole = "student" | "teacher" | "admin";
 
@@ -25,7 +26,15 @@ const DEMO = {
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
-  const [mode, setMode] = useState<"login" | "register" | "forgot" | "code">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot" | "code" | "verify">("login");
+
+  // Подтверждение почты по ссылке из письма
+  const [regOpen, setRegOpen] = useState(true);
+  const [verifyEmailAddr, setVerifyEmailAddr] = useState("");
+  const [verifyMsg, setVerifyMsg] = useState("");
+  const [checkingLink, setCheckingLink] = useState(
+    () => !!new URLSearchParams(window.location.search).get("verify")
+  );
 
   // Двухфакторный вход администратора
   const [codeUserId, setCodeUserId] = useState<number | null>(null);
@@ -52,10 +61,52 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotDone, setForgotDone] = useState(false);
 
-  const switchMode = (m: "login" | "register" | "forgot" | "code") => {
+  const switchMode = (m: "login" | "register" | "forgot" | "code" | "verify") => {
     setMode(m);
     setError("");
     setForgotDone(false);
+  };
+
+  useEffect(() => {
+    apiPublicSettings()
+      .then(r => setRegOpen(r.registration_open !== false))
+      .catch(() => setRegOpen(true));
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const vt = params.get("verify");
+    if (!vt) return;
+    window.history.replaceState({}, "", window.location.pathname);
+    apiVerifyEmail(vt)
+      .then(res => {
+        if (res.token && res.user) {
+          localStorage.setItem("hispania_token", res.token);
+          onLogin({ id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar });
+          return;
+        }
+        setCheckingLink(false);
+        setMode("verify");
+        setVerifyMsg(res.error || "Ссылка недействительна");
+      })
+      .catch(() => {
+        setCheckingLink(false);
+        setMode("verify");
+        setVerifyMsg("Нет связи с сервером");
+      });
+  }, [onLogin]);
+
+  const resendVerify = async () => {
+    if (!verifyEmailAddr) return;
+    setLoading(true);
+    const res = await apiResendVerify(verifyEmailAddr).catch(() => null);
+    setLoading(false);
+    setVerifyMsg(
+      !res ? "Нет связи с сервером"
+        : res.already ? "Эта почта уже подтверждена — можно входить"
+        : res.mail_sent ? "Письмо отправлено ещё раз"
+        : res.error || "Письмо отправить не удалось"
+    );
   };
 
   const handleVerify = async (e: React.FormEvent) => {
@@ -117,6 +168,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         return;
       }
       if (res.error || !res.token || !res.user) {
+        if (res.need_verify) {
+          setLoading(false);
+          setVerifyEmailAddr(res.email || email.trim().toLowerCase());
+          setVerifyMsg("Почта ещё не подтверждена. Откройте ссылку из письма или запросите новое.");
+          setMode("verify");
+          return;
+        }
         setError(res.error || "Неверный логин или пароль");
         setLoading(false);
         return;
@@ -142,14 +200,18 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     }
     setLoading(true);
     try {
-      const res = await apiRegister(regName.trim(), regEmail.trim().toLowerCase(), regPassword, regRole, regLevel);
-      if (res.error || !res.token || !res.user) {
+      const mail = regEmail.trim().toLowerCase();
+      const res = await apiRegister(regName.trim(), mail, regPassword, regRole, regLevel);
+      setLoading(false);
+      if (!res.need_verify) {
         setError(res.error || "Ошибка регистрации");
-        setLoading(false);
         return;
       }
-      localStorage.setItem("hispania_token", res.token);
-      onLogin({ id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar });
+      setVerifyEmailAddr(mail);
+      setVerifyMsg(res.mail_sent
+        ? `Мы отправили письмо на ${mail}. Перейдите по ссылке из письма, чтобы подтвердить адрес.`
+        : `Аккаунт создан, но письмо на ${mail} отправить не удалось. Нажмите «Отправить ещё раз».`);
+      setMode("verify");
     } catch {
       setError("Ошибка соединения. Попробуйте ещё раз.");
       setLoading(false);
@@ -225,6 +287,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       <div className="page-scroll flex-1 min-h-0 overflow-y-auto overscroll-contain flex items-start sm:items-center justify-center px-4 sm:px-6 py-6 sm:py-10">
         <div className="w-full max-w-sm sm:max-w-md lg:max-w-sm animate-fade-in my-auto">
 
+          {checkingLink && (
+            <div className="flex flex-col items-center gap-3 py-10">
+              <Icon name="Loader" size={26} className="animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground font-ibm">Подтверждаем почту...</p>
+            </div>
+          )}
+
           {/* Mobile logo */}
           <div className="flex items-center gap-3 mb-5 sm:mb-6 lg:hidden">
             <img src="/logo.png" alt="Hispania 35"
@@ -236,7 +305,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           </div>
 
           {/* Tabs */}
-          <div className={`flex bg-muted/50 rounded-xl p-1 mb-6 ${mode === "forgot" ? "hidden" : ""}`}>
+          <div className={`flex bg-muted/50 rounded-xl p-1 mb-6 ${
+            mode === "forgot" || mode === "verify" || checkingLink || !regOpen ? "hidden" : ""
+          }`}>
             <button
               onClick={() => switchMode("login")}
               className={`flex-1 py-2.5 sm:py-2 rounded-lg text-sm font-montserrat font-bold transition-all duration-150 ${
@@ -255,8 +326,32 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </button>
           </div>
 
+          {/* ── ПОДТВЕРЖДЕНИЕ ПОЧТЫ ── */}
+          {mode === "verify" && !checkingLink && (
+            <div className="animate-fade-in text-center">
+              <span className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                <Icon name="MailCheck" size={26} className="text-primary" />
+              </span>
+              <h2 className="font-montserrat font-black text-lg text-foreground mb-2">Подтвердите почту</h2>
+              <p className="text-sm text-muted-foreground font-ibm mb-5">{verifyMsg}</p>
+
+              <div className="space-y-2">
+                {verifyEmailAddr && (
+                  <button onClick={resendVerify} disabled={loading}
+                    className="w-full py-3 red-accent text-white rounded-xl font-montserrat font-bold text-sm hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2">
+                    {loading ? <><Icon name="Loader" size={16} className="animate-spin" />Отправляю...</> : <><Icon name="Send" size={15} />Отправить ещё раз</>}
+                  </button>
+                )}
+                <button onClick={() => switchMode("login")}
+                  className="w-full py-3 rounded-xl border border-border text-sm font-montserrat font-bold text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  Вернуться ко входу
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ── LOGIN ── */}
-          {mode === "login" && (
+          {mode === "login" && !checkingLink && (
             <div className="animate-fade-in">
               <p className="text-muted-foreground font-ibm text-sm mb-5">Введите данные для входа в личный кабинет</p>
 
@@ -321,7 +416,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           )}
 
           {/* ── КОД ПОДТВЕРЖДЕНИЯ ── */}
-          {mode === "code" && (
+          {mode === "code" && !checkingLink && (
             <div className="animate-fade-in">
               <button onClick={() => { switchMode("login"); setCode(""); }}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-ibm mb-5 transition-colors">
@@ -367,7 +462,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           )}
 
           {/* ── FORGOT ── */}
-          {mode === "forgot" && (
+          {mode === "forgot" && !checkingLink && (
             <div className="animate-fade-in">
               <button onClick={() => switchMode("login")} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-ibm mb-5 transition-colors">
                 <Icon name="ArrowLeft" size={14} />Вернуться ко входу
@@ -413,7 +508,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           )}
 
           {/* ── REGISTER ── */}
-          {mode === "register" && (
+          {mode === "register" && !checkingLink && regOpen && (
             <div className="animate-fade-in">
               <p className="text-muted-foreground font-ibm text-sm mb-5">Создайте аккаунт для доступа к платформе</p>
 

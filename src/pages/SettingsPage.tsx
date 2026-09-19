@@ -6,6 +6,7 @@ import { PLATFORMS, DEFAULT_JITSI_HOST, type VideoPlatform } from "@/lib/videoPl
 import { apiChangePassword, type HomeBlockPref } from "@/lib/api";
 import AdminEmailBlock from "@/components/settings/AdminEmailBlock";
 import PeopleManager from "@/components/settings/PeopleManager";
+import RegistrationToggle from "@/components/settings/RegistrationToggle";
 
 interface Props {
   user: User;
@@ -348,6 +349,16 @@ export default function SettingsPage({ user }: Props) {
                 Почта администратора
               </p>
               <AdminEmailBlock />
+            </div>
+          )}
+
+          {isAdmin && (
+            <div>
+              <p className="text-xs font-montserrat font-bold text-foreground mb-2 flex items-center gap-2">
+                <Icon name="UserPlus" size={14} className="text-primary" />
+                Самостоятельная регистрация
+              </p>
+              <RegistrationToggle />
             </div>
           )}
 

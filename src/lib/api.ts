@@ -32,7 +32,7 @@ export async function apiLogin(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ action: "login", email, password }),
   });
-  return r.data as { token?: string; user?: ApiUser; twofa?: boolean; user_id?: number; hint?: string; error?: string };
+  return r.data as { token?: string; user?: ApiUser; twofa?: boolean; user_id?: number; hint?: string; need_verify?: boolean; email?: string; error?: string };
 }
 
 export async function apiVerifyCode(user_id: number, code: string) {
@@ -51,12 +51,32 @@ export async function apiResendCode(user_id: number) {
   return r.data as { ok?: boolean; hint?: string; error?: string };
 }
 
+export async function apiVerifyEmail(token: string) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "verify_email", token }) });
+  return r.data as { token?: string; user?: ApiUser; expired?: boolean; error?: string };
+}
+
+export async function apiResendVerify(email: string) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "resend_verify", email }) });
+  return r.data as { ok?: boolean; already?: boolean; mail_sent?: boolean; error?: string };
+}
+
+export async function apiPublicSettings() {
+  const r = await request(AUTH_URL + "?p=public");
+  return r.data as { registration_open?: boolean; error?: string };
+}
+
+export async function apiSetRegistration(open: boolean) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "set_registration", open }) });
+  return r.data as { ok?: boolean; registration_open?: boolean; error?: string };
+}
+
 export async function apiRegister(name: string, email: string, password: string, role: string, level?: string) {
   const r = await request(AUTH_URL, {
     method: "POST",
     body: JSON.stringify({ action: "register", name, email, password, role, level }),
   });
-  return r.data as { token?: string; user?: ApiUser; error?: string };
+  return r.data as { need_verify?: boolean; email?: string; mail_sent?: boolean; error?: string };
 }
 
 export async function apiMe() {

@@ -10,22 +10,59 @@
       "name": "Login student success",
       "method": "POST",
       "path": "/",
-      "body": {"action": "login", "email": "anna@hispania35.ru", "password": "student123"},
+      "body": {
+        "action": "login",
+        "email": "anna@hispania35.ru",
+        "password": "student123"
+      },
       "expectedStatus": 200
     },
     {
       "name": "Login wrong password",
       "method": "POST",
       "path": "/",
-      "body": {"action": "login", "email": "anna@hispania35.ru", "password": "wrongpass"},
+      "body": {
+        "action": "login",
+        "email": "anna@hispania35.ru",
+        "password": "wrongpass"
+      },
       "expectedStatus": 401
     },
     {
       "name": "Reset request unknown email",
       "method": "POST",
       "path": "/",
-      "body": {"action": "reset_request", "email": "unknown@test.ru"},
+      "body": {
+        "action": "reset_request",
+        "email": "unknown@test.ru"
+      },
       "expectedStatus": 404
+    },
+    {
+      "name": "Public settings",
+      "method": "GET",
+      "path": "/?p=public",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Verify bad token",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "verify_email",
+        "token": "nope"
+      },
+      "expectedStatus": 404
+    },
+    {
+      "name": "Set registration denied",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "action": "set_registration",
+        "open": true
+      },
+      "expectedStatus": 403
     }
   ]
 }
