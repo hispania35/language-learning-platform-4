@@ -160,3 +160,26 @@ def verify_email_letter(name, link):
         ],
         "Подтвердить почту", link,
     )
+
+
+def new_signup_admin_email(name, email, role, level, date_str):
+    """Уведомление администратору о новом подтверждённом пользователе."""
+    who = "преподаватель" if role == "teacher" else "ученик"
+    rows = [
+        ("Имя", name),
+        ("Почта", email),
+        ("Уровень", level or "—"),
+        ("Дата регистрации", date_str),
+    ]
+    table = "".join(
+        f'<tr><td style="padding:6px 12px 6px 0;color:#6b7280;font-size:14px;white-space:nowrap">{k}</td>'
+        f'<td style="padding:6px 0;color:#111827;font-size:15px;font-weight:bold">{v}</td></tr>'
+        for k, v in rows
+    )
+    return _wrap(
+        f"Новый {who} на платформе",
+        [
+            f"На платформе зарегистрировался новый {who} и подтвердил свою почту.",
+            f'<table style="border-collapse:collapse;margin-top:6px">{table}</table>',
+        ],
+    )

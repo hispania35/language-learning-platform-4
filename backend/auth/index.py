@@ -12,7 +12,7 @@ import os
 import secrets
 import psycopg2
 from datetime import datetime, timedelta
-from mailer import send_email, _wrap, welcome_access_email, new_password_email, verify_email_letter
+from mailer import send_email, _wrap, welcome_access_email, new_password_email, verify_email_letter, new_signup_admin_email
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -888,6 +888,22 @@ def verify_email(event):
         text = f"{row[1]} зарегистрировался и подтвердил почту"
         values = ",".join(cur.mogrify("(%s,%s,'system')", (sid, text)).decode() for sid in staff)
         cur.execute(f"INSERT INTO notifications (user_id, text, type) VALUES {values}")
+
+    # Письмо администратору о новом пользователе
+    cur.execute("SELECT email FROM users WHERE id=%s", (user_id,))
+    erow = cur.fetchone()
+    user_email = erow[0] if erow else ""
+    cur.execute("SELECT COALESCE(twofa_email,'') FROM users WHERE role='admin' AND COALESCE(twofa_email,'') <> ''")
+    admin_mails = [r[0] for r in cur.fetchall()]
+
+    if admin_mails:
+        now = datetime.now()
+        date_str = f"{now.day:02d}.{now.month:02d}.{now.year} в {now.hour:02d}:{now.minute:02d}"
+        who = "преподаватель" if row[2] == "teacher" else "ученик"
+        html = new_signup_admin_email(row[1], user_email, row[2], row[3], date_str)
+        for mail in admin_mails:
+            send_email(mail, f"Новый {who}: {row[1]}", html,
+                       f"{row[1]}, {user_email}, уровень {row[3] or '—'}, {date_str}")
 
     return issue_session(conn, cur, user_id, row[1], row[2], row[3], row[4])
 
