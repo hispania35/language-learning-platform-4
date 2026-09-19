@@ -143,6 +143,8 @@ def handler(event: dict, context) -> dict:
             return add_subject(event, conn, user_id, role)
         if method == "POST" and action == "rename_subject":
             return rename_subject(event, conn, user_id, role)
+        if method == "POST" and action == "move_items":
+            return move_items(event, conn, user_id, role)
         if method == "POST" and action == "move_subject":
             return move_subject(event, conn, user_id, role)
         if method == "POST" and action == "del_subject":
@@ -357,6 +359,39 @@ def rename_subject(event, conn, user_id, role):
     cur.close()
     conn.close()
     return resp(200, {"ok": True, "id": sid, "name": name})
+
+
+def move_items(event, conn, user_id, role):
+    """Перенести выбранные файлы в другой каталог или предмет."""
+    if role not in ("teacher", "admin"):
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    body = json.loads(event.get("body") or "{}")
+    ids = body.get("ids") or []
+    ids = [int(x) for x in ids if str(x).isdigit()]
+    if not ids:
+        conn.close()
+        return resp(400, {"error": "Не выбраны файлы"})
+    target_raw = body.get("subject_id")
+    target = int(target_raw) if target_raw else None
+
+    cur = conn.cursor()
+    if target:
+        cur.execute("SELECT id FROM library_subjects WHERE id=%s AND teacher_id=%s", (target, user_id))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return resp(400, {"error": "Каталог не найден"})
+
+    in_list = ",".join(str(i) for i in ids)
+    cur.execute(
+        f"UPDATE library_items SET subject_id=%s WHERE id IN ({in_list}) AND teacher_id=%s",
+        (target, user_id))
+    moved = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return resp(200, {"ok": True, "moved": moved})
 
 
 def move_subject(event, conn, user_id, role):

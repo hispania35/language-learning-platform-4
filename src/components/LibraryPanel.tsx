@@ -3,6 +3,7 @@ import Icon from "@/components/ui/icon";
 import LibraryUploadDialog from "@/components/library/LibraryUploadDialog";
 import SubjectsDialog from "@/components/library/SubjectsDialog";
 import MoveSubjectDialog from "@/components/library/MoveSubjectDialog";
+import MoveItemsDialog from "@/components/library/MoveItemsDialog";
 import {
   apiGetLibrary, apiDeleteLibraryItem, apiAssignLibraryItem,
   apiGetStudents, apiGetGroups,
@@ -69,6 +70,7 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const [folderBusy, setFolderBusy] = useState(false);
   const [delFolder, setDelFolder] = useState<LibrarySubject | null>(null);
   const [moveFolder, setMoveFolder] = useState<LibrarySubject | null>(null);
+  const [moveItems, setMoveItems] = useState(false);
   const [downloadId, setDownloadId] = useState<number | null>(null);
   const [zipBusy, setZipBusy] = useState(false);
   const [zipDone, setZipDone] = useState(0);
@@ -380,6 +382,23 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
     return chainOf(id).some(s => s.id === subjectTab);
   };
 
+  // Сколько файлов каждого типа в текущем разделе — чтобы не тыкать в пустые кнопки
+  const inTabCounts = (() => {
+    const base = items.filter(i => {
+      const okSubject = inSubject(i.subject_id);
+      const okSearch = !search ||
+        i.title.toLowerCase().includes(search.toLowerCase()) ||
+        (i.author || "").toLowerCase().includes(search.toLowerCase());
+      return okSubject && okSearch;
+    });
+    return {
+      all: base.length,
+      book: base.filter(i => i.kind === "book").length,
+      audio: base.filter(i => i.kind === "audio").length,
+      video: base.filter(i => i.kind === "video").length,
+    };
+  })();
+
   const shown = items.filter(i => {
     const okTab = tab === "all" || i.kind === tab;
     const okSubject = inSubject(i.subject_id);
@@ -411,13 +430,24 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
         </div>
 
         <div className="flex gap-1 bg-muted/40 rounded-xl p-1 overflow-x-auto">
-          {([["all", "Все"], ["book", "Книги"], ["audio", "Аудио"], ["video", "Видео"]] as const).map(([v, label]) => (
-            <button key={v} onClick={() => setTab(v)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-montserrat font-medium transition-all
-                ${tab === v ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
-              {label}
-            </button>
-          ))}
+          {([["all", "Все"], ["book", "Книги"], ["audio", "Аудио"], ["video", "Видео"]] as const).map(([v, label]) => {
+            const n = v === "all" ? inTabCounts.all : inTabCounts[v] || 0;
+            return (
+              <button key={v} onClick={() => setTab(v)} disabled={n === 0 && v !== "all"}
+                title={n === 0 && v !== "all" ? "В этом разделе пока ничего нет" : undefined}
+                className={`px-3 py-1.5 rounded-lg text-sm font-montserrat font-medium transition-all flex items-center gap-1.5
+                  ${tab === v ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}
+                  ${n === 0 && v !== "all" ? "opacity-40 cursor-not-allowed" : ""}`}>
+                {label}
+                {n > 0 && (
+                  <span className={`text-[10px] font-montserrat font-bold px-1.5 py-0.5 rounded
+                    ${tab === v ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+                    {n}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {isTeacher && (
@@ -460,6 +490,11 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-border bg-card text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors disabled:opacity-50">
               <Icon name={zipBusy ? "Loader" : "Download"} size={13} className={zipBusy ? "animate-spin" : ""} />
               Скачать
+            </button>
+            <button onClick={() => setMoveItems(true)} disabled={!selected.length}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-border bg-card text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors disabled:opacity-50">
+              <Icon name="FolderInput" size={13} />
+              В каталог
             </button>
             <button onClick={() => { setBulkAssign(true); setPickedStudents([]); setPickedGroup(null); }}
               disabled={!selected.length}
@@ -642,9 +677,27 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
       ) : !shown.length ? (
         <div className="bg-card rounded-xl border border-border p-10 text-center">
           <Icon name="BookOpen" size={36} className="text-muted-foreground/40 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground font-ibm">
-            {isTeacher ? "Библиотека пуста — загрузите первую книгу или аудио" : "Вам пока не выдали книги"}
-          </p>
+          {items.length === 0 ? (
+            <p className="text-sm text-muted-foreground font-ibm">
+              {isTeacher ? "Библиотека пуста — загрузите первую книгу или аудио" : "Вам пока не выдали книги"}
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground font-ibm">
+                {search
+                  ? `Ничего не нашлось по запросу «${search}»`
+                  : subjectTab === "all"
+                    ? `В разделе «${kindLabel(tab)}» пока пусто`
+                    : `В «${activeChain.map(c => c.name).join(" / ")}» нет материалов${tab === "all" ? "" : ` в разделе «${kindLabel(tab)}»`}`}
+              </p>
+              {(tab !== "all" || subjectTab !== "all") && (
+                <button onClick={() => { setTab("all"); setSubjectTab("all"); setSearch(""); }}
+                  className="mt-3 px-4 py-2 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors">
+                  Показать всю библиотеку
+                </button>
+              )}
+            </>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -861,6 +914,22 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
       )}
 
       {/* Удаление каталога */}
+      {moveItems && (
+        <MoveItemsDialog
+          count={selected.length}
+          ids={selected}
+          subjects={subjects}
+          onClose={() => setMoveItems(false)}
+          onMoved={m => {
+            setMoveItems(false);
+            exitSelect();
+            setMsg(m);
+            setTimeout(() => setMsg(""), 4000);
+            load();
+          }}
+        />
+      )}
+
       {moveFolder && (
         <MoveSubjectDialog
           folder={moveFolder}
