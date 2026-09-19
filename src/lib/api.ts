@@ -89,6 +89,56 @@ export async function apiChangePassword(old_password: string, new_password: stri
   return r.data as { ok?: boolean; need_code?: boolean; hint?: string; error?: string };
 }
 
+export interface PersonCard {
+  id: number;
+  name: string;
+  email: string;
+  role: "student" | "teacher";
+  level?: string;
+  avatar?: string;
+  phone?: string;
+  telegram?: string;
+  note?: string;
+  teacher_id?: number | null;
+  lessons_count?: number;
+}
+
+export async function apiChangeAdminEmail(new_email: string, code?: string) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "change_admin_email", new_email, code }) });
+  return r.data as { ok?: boolean; need_code?: boolean; hint?: string; email?: string; error?: string };
+}
+
+export async function apiGetPeople() {
+  const r = await request(AUTH_URL + "?p=people");
+  return r.data as { teachers?: PersonCard[]; students?: PersonCard[]; error?: string };
+}
+
+export async function apiAdminSetPassword(user_id: number, new_password: string) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_set_password", user_id, new_password }) });
+  return r.data as { ok?: boolean; error?: string };
+}
+
+export async function apiAdminAddUser(data: {
+  name: string; email: string; password: string; role: "student" | "teacher";
+  level?: string; phone?: string; telegram?: string; note?: string;
+}) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_add_user", ...data }) });
+  return r.data as { ok?: boolean; id?: number; error?: string };
+}
+
+export async function apiAdminUpdateUser(data: {
+  user_id: number; name?: string; email?: string; level?: string;
+  phone?: string; telegram?: string; note?: string;
+}) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_update_user", ...data }) });
+  return r.data as { ok?: boolean; error?: string };
+}
+
+export async function apiAdminDeleteUser(user_id: number) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_delete_user", user_id }) });
+  return r.data as { ok?: boolean; name?: string; error?: string };
+}
+
 // ── Homework ──────────────────────────────────────────────────────────────────
 
 export async function apiGetHomework() {

@@ -4,6 +4,8 @@ import Icon from "@/components/ui/icon";
 import { useSettings, HOME_BLOCKS } from "@/hooks/useSettings";
 import { PLATFORMS, DEFAULT_JITSI_HOST, type VideoPlatform } from "@/lib/videoPlatform";
 import { apiChangePassword, type HomeBlockPref } from "@/lib/api";
+import AdminEmailBlock from "@/components/settings/AdminEmailBlock";
+import PeopleManager from "@/components/settings/PeopleManager";
 
 interface Props {
   user: User;
@@ -327,8 +329,38 @@ export default function SettingsPage({ user }: Props) {
         hint="Каждый ученик закреплён за своим преподавателем" disabled />
 
       <Section num={9} title="Параметры входа" icon="KeyRound"
-        hint={isAdmin ? "Пароль администратора и подтверждение по почте" : "Смена пароля"}>
-        <PasswordBlock isAdmin={isAdmin} />
+        hint={isAdmin
+          ? "Пароль и почта администратора, сбросы паролей, карточки людей"
+          : "Смена пароля"}>
+        <div className="space-y-5">
+          <div>
+            <p className="text-xs font-montserrat font-bold text-foreground mt-3 flex items-center gap-2">
+              <Icon name="Lock" size={14} className="text-primary" />
+              {isAdmin ? "Пароль администратора" : "Смена пароля"}
+            </p>
+            <PasswordBlock isAdmin={isAdmin} />
+          </div>
+
+          {isAdmin && (
+            <div>
+              <p className="text-xs font-montserrat font-bold text-foreground mb-2 flex items-center gap-2">
+                <Icon name="Mail" size={14} className="text-primary" />
+                Почта администратора
+              </p>
+              <AdminEmailBlock />
+            </div>
+          )}
+
+          {isAdmin && (
+            <div>
+              <p className="text-xs font-montserrat font-bold text-foreground mb-2 flex items-center gap-2">
+                <Icon name="Users" size={14} className="text-primary" />
+                Ученики и преподаватели
+              </p>
+              <PeopleManager />
+            </div>
+          )}
+        </div>
       </Section>
     </div>
   );
