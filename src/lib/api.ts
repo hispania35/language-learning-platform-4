@@ -32,7 +32,7 @@ export async function apiLogin(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ action: "login", email, password }),
   });
-  return r.data as { token?: string; user?: ApiUser; twofa?: boolean; user_id?: number; hint?: string; need_verify?: boolean; email?: string; error?: string };
+  return r.data as { token?: string; user?: ApiUser; twofa?: boolean; user_id?: number; hint?: string; need_verify?: boolean; blocked?: boolean; email?: string; error?: string };
 }
 
 export async function apiVerifyCode(user_id: number, code: string) {
@@ -121,6 +121,8 @@ export interface PersonCard {
   note?: string;
   teacher_id?: number | null;
   lessons_count?: number;
+  is_blocked?: boolean;
+  email_verified?: boolean;
 }
 
 export async function apiChangeAdminEmail(new_email: string, code?: string) {
@@ -152,6 +154,11 @@ export async function apiAdminUpdateUser(data: {
 }) {
   const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_update_user", ...data }) });
   return r.data as { ok?: boolean; error?: string };
+}
+
+export async function apiAdminBlockUser(user_id: number, block: boolean) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_block_user", user_id, block }) });
+  return r.data as { ok?: boolean; name?: string; is_blocked?: boolean; error?: string };
 }
 
 export async function apiAdminDeleteUser(user_id: number) {

@@ -51,6 +51,8 @@ def handler(event: dict, context) -> dict:
         return verify_email(event)
     if method == "POST" and action == "resend_verify":
         return resend_verify(event)
+    if method == "POST" and action == "admin_block_user":
+        return admin_block_user(event)
     if method == "POST" and action == "set_registration":
         return set_registration(event)
     if method == "POST" and action == "change_admin_email":
@@ -87,7 +89,8 @@ def login(event):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT id, name, role, level, avatar, COALESCE(twofa_email,''), COALESCE(email_verified, TRUE)
+        """SELECT id, name, role, level, avatar, COALESCE(twofa_email,''),
+                  COALESCE(email_verified, TRUE), COALESCE(is_blocked, FALSE)
            FROM users WHERE email=%s AND password_hash=%s""",
         (email, password)
     )
@@ -96,7 +99,14 @@ def login(event):
         cur.close(); conn.close()
         return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Неверный логин или пароль"})}
 
-    user_id, name, role, level, avatar, twofa_email, verified = row
+    user_id, name, role, level, avatar, twofa_email, verified, blocked = row
+
+    if blocked:
+        cur.close(); conn.close()
+        return {"statusCode": 403, "headers": CORS, "body": json.dumps({
+            "blocked": True,
+            "error": "Доступ к кабинету приостановлен. Обратитесь к администратору школы."
+        })}
 
     if not verified:
         cur.close(); conn.close()
@@ -381,7 +391,7 @@ def me(event):
     cur.execute(
         """SELECT u.id, u.name, u.role, u.level, u.avatar
            FROM sessions s JOIN users u ON u.id=s.user_id
-           WHERE s.token=%s AND s.expires_at > NOW()""",
+           WHERE s.token=%s AND s.expires_at > NOW() AND COALESCE(u.is_blocked, FALSE) = FALSE""",
         (token,)
     )
     row = cur.fetchone()
@@ -603,14 +613,16 @@ def admin_people(event):
         """SELECT u.id, u.name, u.email, u.role, COALESCE(u.level,''), COALESCE(u.avatar,''),
                   COALESCE(u.phone,''), COALESCE(u.telegram,''), COALESCE(u.note,''),
                   u.teacher_id,
-                  (SELECT COUNT(*) FROM lesson_students ls WHERE ls.student_id=u.id)
+                  (SELECT COUNT(*) FROM lesson_students ls WHERE ls.student_id=u.id),
+                  COALESCE(u.is_blocked, FALSE), COALESCE(u.email_verified, TRUE)
            FROM users u WHERE u.role IN ('student','teacher') ORDER BY u.role, u.name"""
     )
     rows = cur.fetchall()
     cur.close(); conn.close()
     people = [{"id": r[0], "name": r[1], "email": r[2], "role": r[3], "level": r[4],
                "avatar": r[5], "phone": r[6], "telegram": r[7], "note": r[8],
-               "teacher_id": r[9], "lessons_count": r[10]} for r in rows]
+               "teacher_id": r[9], "lessons_count": r[10],
+               "is_blocked": r[11], "email_verified": r[12]} for r in rows]
     return {"statusCode": 200, "headers": CORS, "body": json.dumps({
         "teachers": [p for p in people if p["role"] == "teacher"],
         "students": [p for p in people if p["role"] == "student"],
@@ -938,3 +950,42 @@ def resend_verify(event):
         "Подтвердите адрес почты, перейдя по ссылке в письме"
     )
     return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "mail_sent": sent})}
+
+
+def admin_block_user(event):
+    """Временная блокировка доступа ученику или преподавателю (без удаления)."""
+    admin_id, deny = _admin_only(event)
+    if deny:
+        return deny
+    body = json.loads(event.get("body") or "{}")
+    target = body.get("user_id")
+    if not target:
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Не указан пользователь"})}
+    target = int(target)
+    if target == admin_id:
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Нельзя заблокировать себя"})}
+    block = bool(body.get("block"))
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT role, name FROM users WHERE id=%s", (target,))
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "Пользователь не найден"})}
+    if row[0] == "admin":
+        cur.close(); conn.close()
+        return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Администратора заблокировать нельзя"})}
+
+    cur.execute(
+        "UPDATE users SET is_blocked=%s, blocked_at=%s WHERE id=%s",
+        (block, datetime.now() if block else None, target)
+    )
+    if block:
+        cur.execute("DELETE FROM sessions WHERE user_id=%s", (target,))
+    else:
+        cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'system')",
+                    (target, "Доступ к кабинету восстановлен"))
+    conn.commit(); cur.close(); conn.close()
+    return {"statusCode": 200, "headers": CORS,
+            "body": json.dumps({"ok": True, "name": row[1], "is_blocked": block})}

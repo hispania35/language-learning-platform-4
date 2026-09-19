@@ -3,7 +3,7 @@ import Icon from "@/components/ui/icon";
 import PersonCardForm, { type PersonFormValues } from "./PersonCardForm";
 import {
   apiGetPeople, apiResetList, apiAdminSetPassword, apiAdminAddUser,
-  apiAdminUpdateUser, apiAdminDeleteUser,
+  apiAdminUpdateUser, apiAdminDeleteUser, apiAdminBlockUser,
   type PersonCard, type PasswordReset,
 } from "@/lib/api";
 
@@ -103,6 +103,17 @@ export default function PeopleManager() {
     load();
   };
 
+  const toggleBlock = async (p: PersonCard) => {
+    setBusy(true);
+    const res = await apiAdminBlockUser(p.id, !p.is_blocked).catch(() => null);
+    setBusy(false);
+    if (!res?.ok) { setMsg(res?.error || "Не удалось изменить доступ"); return; }
+    setMsg(res.is_blocked
+      ? `${p.name} заблокирован — вход в кабинет закрыт`
+      : `${p.name} снова может входить`);
+    load();
+  };
+
   const remove = async (p: PersonCard) => {
     setBusy(true);
     const res = await apiAdminDeleteUser(p.id).catch(() => null);
@@ -189,19 +200,41 @@ export default function PeopleManager() {
             <p className="text-xs text-muted-foreground font-ibm px-3 py-2 rounded-lg bg-muted">Никого не найдено</p>
           )}
           {filtered.map(p => (
-            <div key={p.id} className="rounded-lg border border-border p-3">
+            <div key={p.id} className={`rounded-lg border p-3 transition-colors ${
+              p.is_blocked ? "border-border bg-muted/40" : "border-border"
+            }`}>
               <div className="flex items-center gap-2.5">
-                <span className="w-8 h-8 rounded-full red-accent flex items-center justify-center flex-shrink-0">
+                <span className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  p.is_blocked ? "bg-muted-foreground/30" : "red-accent"
+                }`}>
                   <span className="text-white font-montserrat font-bold text-[11px]">{p.avatar || "??"}</span>
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-montserrat font-bold text-foreground truncate">{p.name}</p>
+                  <p className={`text-sm font-montserrat font-bold truncate flex items-center gap-1.5 ${
+                    p.is_blocked ? "text-muted-foreground" : "text-foreground"
+                  }`}>
+                    <span className="truncate">{p.name}</span>
+                    {p.is_blocked && (
+                      <span className="px-1.5 py-0.5 rounded bg-muted-foreground/20 text-[10px] font-montserrat font-medium text-muted-foreground flex-shrink-0">
+                        Заблокирован
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-muted-foreground font-ibm truncate">
                     {p.email}{p.level ? ` · ${p.level}` : ""}
                     {p.role === "student" && p.lessons_count ? ` · ${p.lessons_count} ур.` : ""}
                   </p>
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => toggleBlock(p)} disabled={busy}
+                    title={p.is_blocked ? "Разблокировать" : "Заблокировать"}
+                    className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors disabled:opacity-50 ${
+                      p.is_blocked
+                        ? "border-green-300 text-green-700 hover:bg-green-50"
+                        : "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                    }`}>
+                    <Icon name={p.is_blocked ? "LockOpen" : "Ban"} size={14} />
+                  </button>
                   <button onClick={() => { setEditing(p); setAdding(false); setPassFor(null); }} title="Редактировать"
                     className="w-8 h-8 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                     <Icon name="Pencil" size={14} />
