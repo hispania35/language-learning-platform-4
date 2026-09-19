@@ -1366,7 +1366,8 @@ def get_students(conn):
         """SELECT u.id, u.name, u.avatar, u.level, u.email,
                   COALESCE(u.phone,''), COALESCE(u.social_name,''),
                   COALESCE(u.social_url,''), COALESCE(u.note,''),
-                  (SELECT COUNT(*) FROM lesson_students ls WHERE ls.student_id=u.id) as lessons_count
+                  (SELECT COUNT(*) FROM lesson_students ls WHERE ls.student_id=u.id) as lessons_count,
+                  COALESCE(u.timezone,'Europe/Moscow'), COALESCE(u.languages,'es')
            FROM users u WHERE u.role='student' ORDER BY u.name"""
     )
     rows = cur.fetchall()
@@ -1374,7 +1375,8 @@ def get_students(conn):
     return resp(200, {"students": [
         {"id": r[0], "name": r[1], "avatar": r[2], "level": r[3], "email": r[4],
          "phone": r[5], "social_name": r[6], "social_url": r[7], "note": r[8],
-         "lessons_count": r[9]} for r in rows
+         "lessons_count": r[9], "timezone": r[10],
+         "languages": [x for x in r[11].split(",") if x]} for r in rows
     ]})
 
 def update_student(event, conn, role):
@@ -1404,6 +1406,14 @@ def update_student(event, conn, role):
     level = body.get("level")
     if level is not None:
         fields.append("level=%s"); values.append(str(level).strip())
+    tz = body.get("timezone")
+    if tz:
+        fields.append("timezone=%s"); values.append(str(tz).strip())
+    langs = body.get("languages")
+    if langs is not None:
+        if isinstance(langs, list):
+            langs = ",".join(str(x).strip() for x in langs if str(x).strip())
+        fields.append("languages=%s"); values.append(str(langs).strip())
     values.append(student_id)
     cur.execute(f"UPDATE users SET {', '.join(fields)} WHERE id=%s AND role='student' RETURNING id", tuple(values))
     if not cur.fetchone():

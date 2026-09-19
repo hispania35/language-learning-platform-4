@@ -242,6 +242,8 @@ export async function apiUpdateStudent(data: {
   social_name?: string;
   social_url?: string;
   note?: string;
+  timezone?: string;
+  languages?: string[];
 }) {
   const r = await request(API_URL + "?p=students", { method: "PUT", body: JSON.stringify(data) });
   return r.data as { ok?: boolean; error?: string };
@@ -532,6 +534,8 @@ export interface StudentInfo {
   social_name?: string;
   social_url?: string;
   note?: string;
+  timezone?: string;
+  languages?: string[];
 }
 
 export interface StudentGroup {

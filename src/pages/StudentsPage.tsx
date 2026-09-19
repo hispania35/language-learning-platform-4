@@ -5,6 +5,7 @@ import {
   type StudentInfo, type StudentGroup,
 } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
+import { TIMEZONES, LANGUAGES, DEFAULT_TZ } from "@/lib/locales";
 
 const GROUP_COLORS = [
   { key: "primary", dot: "bg-primary", soft: "bg-primary/10 text-primary" },
@@ -33,7 +34,10 @@ export default function StudentsPage({ user }: { user: User }) {
   const [deleting, setDeleting] = useState(false);
 
   const [editStudent, setEditStudent] = useState<StudentInfo | null>(null);
-  const [sForm, setSForm] = useState({ name: "", level: "", email: "", phone: "", social_name: "", social_url: "", note: "" });
+  const [sForm, setSForm] = useState({
+    name: "", level: "", email: "", phone: "", social_name: "", social_url: "", note: "",
+    timezone: DEFAULT_TZ, languages: ["es"] as string[],
+  });
   const [sError, setSError] = useState("");
   const [sSaving, setSSaving] = useState(false);
 
@@ -69,6 +73,8 @@ export default function StudentsPage({ user }: { user: User }) {
       social_name: s.social_name || "",
       social_url: s.social_url || "",
       note: s.note || "",
+      timezone: s.timezone || DEFAULT_TZ,
+      languages: s.languages && s.languages.length ? s.languages : ["es"],
     });
     setSError("");
   };
@@ -90,6 +96,8 @@ export default function StudentsPage({ user }: { user: User }) {
         social_name: sForm.social_name.trim(),
         social_url: sForm.social_url.trim(),
         note: sForm.note.trim(),
+        timezone: sForm.timezone,
+        languages: sForm.languages,
       });
       if (res.ok) {
         const s = await apiGetStudents();
@@ -224,6 +232,21 @@ export default function StudentsPage({ user }: { user: User }) {
                       <p className="font-montserrat font-bold text-sm text-foreground truncate">{s.name}</p>
                       <div className="flex items-center gap-2 flex-wrap mt-0.5">
                         {s.level && <span className="text-xs text-muted-foreground font-ibm">Уровень {s.level}</span>}
+                        {(s.languages || []).map(code => {
+                          const l = LANGUAGES.find(x => x.id === code);
+                          if (!l) return null;
+                          return (
+                            <span key={code} title={l.label}
+                              className="text-xs px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground font-ibm">
+                              {l.flag} {l.label}
+                            </span>
+                          );
+                        })}
+                        {s.timezone && s.timezone !== DEFAULT_TZ && (
+                          <span className="text-xs text-muted-foreground font-ibm">
+                            {TIMEZONES.find(t => t.id === s.timezone)?.offset || ""}
+                          </span>
+                        )}
                         {inGroups.map(g => {
                           const c = colorOf(g.color);
                           return (
@@ -370,6 +393,46 @@ export default function StudentsPage({ user }: { user: User }) {
                 <input type="tel" value={sForm.phone} placeholder="+7 900 123-45-67"
                   onChange={e => setSForm({ ...sForm, phone: e.target.value })}
                   className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40" />
+              </div>
+
+              <div>
+                <label className="text-xs font-montserrat font-bold text-muted-foreground">Часовой пояс</label>
+                <select value={sForm.timezone}
+                  onChange={e => setSForm({ ...sForm, timezone: e.target.value })}
+                  className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40">
+                  {TIMEZONES.map(tz => (
+                    <option key={tz.id} value={tz.id}>{tz.label} · {tz.offset}</option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-muted-foreground font-ibm mt-1">
+                  Время уроков и напоминания ученик увидит в своём поясе
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-montserrat font-bold text-muted-foreground">Изучаемые языки</label>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {LANGUAGES.map(l => {
+                    const on = sForm.languages.includes(l.id);
+                    return (
+                      <button key={l.id} type="button"
+                        onClick={() => setSForm({
+                          ...sForm,
+                          languages: on
+                            ? sForm.languages.filter(x => x !== l.id)
+                            : [...sForm.languages, l.id],
+                        })}
+                        className={`px-2.5 py-1.5 rounded-lg border text-xs font-montserrat font-medium transition-all flex items-center gap-1.5 ${
+                          on ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"
+                        }`}>
+                        <span>{l.flag}</span>{l.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {sForm.languages.length === 0 && (
+                  <p className="text-[11px] text-muted-foreground font-ibm mt-1">Выберите хотя бы один язык</p>
+                )}
               </div>
 
               <div className="grid grid-cols-3 gap-2">
