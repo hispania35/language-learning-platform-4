@@ -163,9 +163,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="min-h-[100dvh] bg-background flex flex-col lg:flex-row">
       {/* Left — brand panel */}
-      <div className="hidden lg:flex lg:w-1/2 red-accent flex-col justify-between p-12 relative overflow-hidden">
+      <div className="hidden lg:flex lg:w-1/2 xl:w-[55%] red-accent flex-col justify-between p-8 xl:p-12 relative overflow-hidden lg:sticky lg:top-0 lg:h-[100dvh]">
         {/* Decorative */}
         <div className="absolute inset-0 opacity-10">
           {["¡Hola!", "Gracias", "Buenos días", "¿Cómo estás?", "Hasta luego"].map((w, i) => (
@@ -197,25 +197,24 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
         {/* Center text */}
         <div className="relative">
-          <h1 className="font-montserrat font-black text-white text-4xl leading-tight mb-4">
+          <h1 className="font-montserrat font-black text-white text-3xl xl:text-4xl 2xl:text-5xl leading-tight mb-3 xl:mb-4">
             Платформа<br />онлайн-обучения
           </h1>
-          <p className="text-white/70 font-ibm text-lg leading-relaxed">
-            Испанский, немецкий, английский —<br />
-            всё в одном месте. Уроки, материалы,<br />
-            домашние задания и чат с преподавателем.
+          <p className="text-white/70 font-ibm text-base xl:text-lg leading-relaxed max-w-md">
+            Испанский, немецкий, английский — всё в одном месте.
+            Уроки, материалы, домашние задания и чат с преподавателем.
           </p>
         </div>
 
         {/* Stats */}
-        <div className="relative flex gap-8">
+        <div className="relative flex gap-6 xl:gap-8 flex-wrap">
           {[
             { value: "6", label: "чел. в группе" },
             { value: "3", label: "языка" },
             { value: "112+", label: "учеников" },
           ].map((s, i) => (
             <div key={i}>
-              <p className="font-montserrat font-black text-white text-2xl">{s.value}</p>
+              <p className="font-montserrat font-black text-white text-xl xl:text-2xl">{s.value}</p>
               <p className="text-white/60 text-xs font-ibm">{s.label}</p>
             </div>
           ))}
@@ -223,17 +222,16 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       </div>
 
       {/* Right — form */}
-      <div className="flex-1 flex items-center justify-center p-6 overflow-y-auto">
-        <div className="w-full max-w-sm animate-fade-in py-4">
+      <div className="flex-1 flex items-center justify-center px-4 sm:px-6 py-6 sm:py-10 min-h-[100dvh] lg:min-h-0">
+        <div className="w-full max-w-sm sm:max-w-md lg:max-w-sm animate-fade-in">
 
           {/* Mobile logo */}
-          <div className="flex items-center gap-3 mb-6 lg:hidden">
-            <div className="w-9 h-9 rounded-xl red-accent flex items-center justify-center">
-              <span className="font-montserrat font-black text-white text-sm">H</span>
-            </div>
+          <div className="flex items-center gap-3 mb-5 sm:mb-6 lg:hidden">
+            <img src="/logo.png" alt="Hispania 35"
+              className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl object-cover bg-white border border-border" />
             <div>
-              <p className="font-montserrat font-black text-foreground text-base leading-none">Hispania 35</p>
-              <p className="text-muted-foreground text-xs font-ibm">Платформа обучения</p>
+              <p className="font-montserrat font-black text-foreground text-base sm:text-lg leading-none">Hispania 35</p>
+              <p className="text-muted-foreground text-xs font-ibm mt-0.5">Языковая студия</p>
             </div>
           </div>
 
@@ -241,7 +239,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           <div className={`flex bg-muted/50 rounded-xl p-1 mb-6 ${mode === "forgot" ? "hidden" : ""}`}>
             <button
               onClick={() => switchMode("login")}
-              className={`flex-1 py-2 rounded-lg text-sm font-montserrat font-bold transition-all duration-150 ${
+              className={`flex-1 py-2.5 sm:py-2 rounded-lg text-sm font-montserrat font-bold transition-all duration-150 ${
                 mode === "login" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -249,7 +247,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             </button>
             <button
               onClick={() => switchMode("register")}
-              className={`flex-1 py-2 rounded-lg text-sm font-montserrat font-bold transition-all duration-150 ${
+              className={`flex-1 py-2.5 sm:py-2 rounded-lg text-sm font-montserrat font-bold transition-all duration-150 ${
                 mode === "register" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -263,13 +261,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               <p className="text-muted-foreground font-ibm text-sm mb-5">Введите данные для входа в личный кабинет</p>
 
               {/* Demo buttons */}
-              <div className="flex gap-2 mb-5">
+              <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-2 mb-5">
                 <button type="button" onClick={() => fillDemo("student")}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-border bg-muted/40 hover:bg-muted text-xs font-montserrat font-medium text-muted-foreground hover:text-foreground transition-colors">
+                  className="flex items-center justify-center gap-1.5 py-2.5 sm:py-2 rounded-lg border border-border bg-muted/40 hover:bg-muted text-xs font-montserrat font-medium text-muted-foreground hover:text-foreground transition-colors">
                   <Icon name="GraduationCap" size={13} />Войти как студент
                 </button>
                 <button type="button" onClick={() => fillDemo("teacher")}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg border border-border bg-muted/40 hover:bg-muted text-xs font-montserrat font-medium text-muted-foreground hover:text-foreground transition-colors">
+                  className="flex items-center justify-center gap-1.5 py-2.5 sm:py-2 rounded-lg border border-border bg-muted/40 hover:bg-muted text-xs font-montserrat font-medium text-muted-foreground hover:text-foreground transition-colors">
                   <Icon name="BookUser" size={13} />Войти как препод.
                 </button>
               </div>
@@ -282,22 +280,22 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Email или логин</label>
+                  <label className="block text-xs sm:text-xs font-montserrat font-bold text-foreground mb-1.5">Email или логин</label>
                   <div className="relative">
                     <Icon name="Mail" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input type="text" autoComplete="username" value={email}
                       onChange={e => { setEmail(e.target.value); setError(""); }}
                       placeholder="your@email.ru" required
-                      className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
+                      className="w-full pl-9 pr-4 py-3 sm:py-2.5 rounded-xl border border-border bg-card text-foreground text-base sm:text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Пароль</label>
+                  <label className="block text-xs sm:text-xs font-montserrat font-bold text-foreground mb-1.5">Пароль</label>
                   <div className="relative">
                     <Icon name="Lock" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input type={showPassword ? "text" : "password"} value={password}
                       onChange={e => { setPassword(e.target.value); setError(""); }} placeholder="••••••••" required
-                      className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
+                      className="w-full pl-9 pr-10 py-3 sm:py-2.5 rounded-xl border border-border bg-card text-foreground text-base sm:text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
                     <button type="button" onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors">
                       <Icon name={showPassword ? "EyeOff" : "Eye"} size={16} />
@@ -311,7 +309,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                   </div>
                 )}
                 <button type="submit" disabled={loading}
-                  className="w-full py-3 red-accent text-white rounded-xl font-montserrat font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2">
+                  className="w-full py-3.5 sm:py-3 red-accent text-white rounded-xl font-montserrat font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2">
                   {loading ? <><Icon name="Loader" size={16} className="animate-spin" />Вхожу...</> : <>Войти <Icon name="ArrowRight" size={16} /></>}
                 </button>
                 <button type="button" onClick={() => switchMode("forgot")}
@@ -356,7 +354,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 )}
 
                 <button type="submit" disabled={loading || code.length !== 6}
-                  className="w-full py-3 red-accent text-white rounded-xl font-montserrat font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2">
+                  className="w-full py-3.5 sm:py-3 red-accent text-white rounded-xl font-montserrat font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2">
                   {loading ? <><Icon name="Loader" size={16} className="animate-spin" />Проверяю...</> : <>Подтвердить <Icon name="ArrowRight" size={16} /></>}
                 </button>
 
@@ -390,12 +388,12 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                   <p className="text-muted-foreground font-ibm text-sm mb-5">Укажите email — преподаватель получит заявку и сбросит пароль вручную.</p>
                   <form onSubmit={handleForgot} className="space-y-4">
                     <div>
-                      <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Ваш email</label>
+                      <label className="block text-xs sm:text-xs font-montserrat font-bold text-foreground mb-1.5">Ваш email</label>
                       <div className="relative">
                         <Icon name="Mail" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <input type="email" value={forgotEmail} onChange={e => { setForgotEmail(e.target.value); setError(""); }}
                           placeholder="your@email.ru" required
-                          className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
+                          className="w-full pl-9 pr-4 py-3 sm:py-2.5 rounded-xl border border-border bg-card text-foreground text-base sm:text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
                       </div>
                     </div>
                     {error && (
@@ -405,7 +403,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                       </div>
                     )}
                     <button type="submit" disabled={loading}
-                      className="w-full py-3 red-accent text-white rounded-xl font-montserrat font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2">
+                      className="w-full py-3.5 sm:py-3 red-accent text-white rounded-xl font-montserrat font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2">
                       {loading ? <><Icon name="Loader" size={16} className="animate-spin" />Отправляю...</> : <>Отправить заявку</>}
                     </button>
                   </form>
@@ -421,32 +419,32 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
               <form onSubmit={handleRegister} className="space-y-3">
                 <div>
-                  <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Полное имя</label>
+                  <label className="block text-xs sm:text-xs font-montserrat font-bold text-foreground mb-1.5">Полное имя</label>
                   <div className="relative">
                     <Icon name="User" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input type="text" value={regName} onChange={e => { setRegName(e.target.value); setError(""); }}
                       placeholder="Иван Иванов" required
-                      className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
+                      className="w-full pl-9 pr-4 py-3 sm:py-2.5 rounded-xl border border-border bg-card text-foreground text-base sm:text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Email</label>
+                  <label className="block text-xs sm:text-xs font-montserrat font-bold text-foreground mb-1.5">Email</label>
                   <div className="relative">
                     <Icon name="Mail" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input type="email" value={regEmail} onChange={e => { setRegEmail(e.target.value); setError(""); }}
                       placeholder="your@email.ru" required
-                      className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
+                      className="w-full pl-9 pr-4 py-3 sm:py-2.5 rounded-xl border border-border bg-card text-foreground text-base sm:text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Пароль</label>
+                  <label className="block text-xs sm:text-xs font-montserrat font-bold text-foreground mb-1.5">Пароль</label>
                   <div className="relative">
                     <Icon name="Lock" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input type={showRegPassword ? "text" : "password"} value={regPassword}
                       onChange={e => { setRegPassword(e.target.value); setError(""); }} placeholder="Не менее 6 символов" required
-                      className="w-full pl-9 pr-10 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
+                      className="w-full pl-9 pr-10 py-3 sm:py-2.5 rounded-xl border border-border bg-card text-foreground text-base sm:text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
                     <button type="button" onClick={() => setShowRegPassword(!showRegPassword)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                       <Icon name={showRegPassword ? "EyeOff" : "Eye"} size={16} />
@@ -455,27 +453,27 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Повторите пароль</label>
+                  <label className="block text-xs sm:text-xs font-montserrat font-bold text-foreground mb-1.5">Повторите пароль</label>
                   <div className="relative">
                     <Icon name="Lock" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input type={showRegPassword ? "text" : "password"} value={regPassword2}
                       onChange={e => { setRegPassword2(e.target.value); setError(""); }} placeholder="Повторите пароль" required
-                      className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
+                      className="w-full pl-9 pr-4 py-3 sm:py-2.5 rounded-xl border border-border bg-card text-foreground text-base sm:text-sm font-ibm placeholder:text-muted-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/10 transition-all" />
                   </div>
                 </div>
 
                 {/* Role selector */}
                 <div>
-                  <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Роль</label>
-                  <div className="flex gap-2">
+                  <label className="block text-xs sm:text-xs font-montserrat font-bold text-foreground mb-1.5">Роль</label>
+                  <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-2">
                     <button type="button" onClick={() => setRegRole("student")}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-montserrat font-medium transition-all ${
+                      className={`flex items-center justify-center gap-2 py-3 sm:py-2.5 rounded-xl border text-sm font-montserrat font-medium transition-all ${
                         regRole === "student" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"
                       }`}>
                       <Icon name="GraduationCap" size={16} />Студент
                     </button>
                     <button type="button" onClick={() => setRegRole("teacher")}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-montserrat font-medium transition-all ${
+                      className={`flex items-center justify-center gap-2 py-3 sm:py-2.5 rounded-xl border text-sm font-montserrat font-medium transition-all ${
                         regRole === "teacher" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"
                       }`}>
                       <Icon name="BookUser" size={16} />Преподаватель
@@ -486,11 +484,11 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 {/* Level (only for student) */}
                 {regRole === "student" && (
                   <div>
-                    <label className="block text-xs font-montserrat font-bold text-foreground mb-1.5">Уровень языка</label>
-                    <div className="flex gap-2 flex-wrap">
+                    <label className="block text-xs sm:text-xs font-montserrat font-bold text-foreground mb-1.5">Уровень языка</label>
+                    <div className="grid grid-cols-6 gap-1.5 sm:gap-2">
                       {LEVELS.map(l => (
                         <button key={l} type="button" onClick={() => setRegLevel(l)}
-                          className={`px-3 py-1.5 rounded-lg text-sm font-montserrat font-bold border transition-all ${
+                          className={`py-2 rounded-lg text-sm font-montserrat font-bold border transition-all ${
                             regLevel === l ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"
                           }`}>{l}</button>
                       ))}
@@ -506,7 +504,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 )}
 
                 <button type="submit" disabled={loading}
-                  className="w-full py-3 red-accent text-white rounded-xl font-montserrat font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2">
+                  className="w-full py-3.5 sm:py-3 red-accent text-white rounded-xl font-montserrat font-bold text-sm hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center justify-center gap-2">
                   {loading ? <><Icon name="Loader" size={16} className="animate-spin" />Регистрирую...</> : <>Зарегистрироваться <Icon name="ArrowRight" size={16} /></>}
                 </button>
               </form>
