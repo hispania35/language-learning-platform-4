@@ -20,7 +20,11 @@ function PasswordRow({ person, onDone }: { person: PersonCard; onDone: (msg: str
     setBusy(true);
     const res = await apiAdminSetPassword(person.id, pass.trim()).catch(() => null);
     setBusy(false);
-    onDone(res?.ok ? `Новый пароль для ${person.name}: ${pass.trim()}` : res?.error || "Не удалось сохранить");
+    if (!res?.ok) { onDone(res?.error || "Не удалось сохранить"); return; }
+    onDone(
+      `Новый пароль для ${person.name}: ${pass.trim()}. ` +
+      (res.mail_sent ? `Письмо отправлено на ${person.email}.` : "Письмо отправить не удалось — передайте пароль лично.")
+    );
   };
 
   return (
@@ -87,7 +91,14 @@ export default function PeopleManager() {
         }).catch(() => null);
     setBusy(false);
     if (!res?.ok) { setMsg(res?.error || "Не удалось сохранить"); return; }
-    setMsg(editing ? "Карточка обновлена" : "Карточка создана");
+    if (editing) {
+      setMsg("Карточка обновлена");
+    } else {
+      const sent = (res as { mail_sent?: boolean }).mail_sent;
+      setMsg(sent
+        ? `Карточка создана. Логин и пароль отправлены на ${v.email.trim()}.`
+        : `Карточка создана, но письмо отправить не удалось. Логин: ${v.email.trim()}, пароль: ${v.password.trim()}`);
+    }
     setEditing(null); setAdding(false);
     load();
   };

@@ -118,3 +118,31 @@ def lesson_reminder_email(student_name, topic, time_str, date_str, room_url, hou
         ],
         "Открыть урок", room_url,
     )
+
+def welcome_access_email(name, login, password, site_url="", role="student"):
+    """Письмо новому пользователю с логином и паролем."""
+    who = "преподавателя" if role == "teacher" else "ученика"
+    return _wrap(
+        "Доступ к платформе",
+        [
+            f"{name}, здравствуйте!",
+            f"Для вас создан личный кабинет {who} на платформе {SITE_NAME}.",
+            f'Логин: <b>{login}</b><br>Пароль: <b style="font-size:17px;letter-spacing:1px">{password}</b>',
+            "Рекомендуем сменить пароль после первого входа: раздел «Настройки» → «Параметры входа».",
+        ],
+        "Войти в кабинет" if site_url else "", site_url,
+    )
+
+
+def new_password_email(name, login, password, site_url=""):
+    """Письмо о новом пароле, заданном администратором."""
+    return _wrap(
+        "Новый пароль",
+        [
+            f"{name}, здравствуйте!",
+            "Администратор задал для вашего кабинета новый пароль.",
+            f'Логин: <b>{login}</b><br>Пароль: <b style="font-size:17px;letter-spacing:1px">{password}</b>',
+            "Рекомендуем сменить его после входа: раздел «Настройки» → «Параметры входа».",
+        ],
+        "Войти в кабинет" if site_url else "", site_url,
+    )

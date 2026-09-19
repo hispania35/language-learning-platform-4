@@ -63,8 +63,14 @@ export default function PersonCardForm({ role, person, busy, onCancel, onSave }:
         onChange={e => set("email", e.target.value)} placeholder="Почта" className={field} />
 
       {isNew && (
-        <input value={v.password} onChange={e => set("password", e.target.value)}
-          placeholder="Пароль для входа (минимум 6 символов)" autoComplete="new-password" className={field} />
+        <>
+          <input value={v.password} onChange={e => set("password", e.target.value)}
+            placeholder="Пароль для входа (минимум 6 символов)" autoComplete="new-password" className={field} />
+          <p className="text-xs text-muted-foreground font-ibm flex items-start gap-1.5">
+            <Icon name="Mail" size={13} className="text-primary flex-shrink-0 mt-0.5" />
+            Логин и пароль автоматически уйдут письмом на указанную почту.
+          </p>
+        </>
       )}
 
       {role === "student" && (

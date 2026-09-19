@@ -81,7 +81,7 @@ export async function apiResetList() {
 
 export async function apiResetDo(reset_id: number, user_id: number, new_password: string) {
   const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "reset_do", reset_id, user_id, new_password }) });
-  return r.data as { ok?: boolean; error?: string };
+  return r.data as { ok?: boolean; mail_sent?: boolean; error?: string };
 }
 
 export async function apiChangePassword(old_password: string, new_password: string, code?: string) {
@@ -113,17 +113,17 @@ export async function apiGetPeople() {
   return r.data as { teachers?: PersonCard[]; students?: PersonCard[]; error?: string };
 }
 
-export async function apiAdminSetPassword(user_id: number, new_password: string) {
-  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_set_password", user_id, new_password }) });
-  return r.data as { ok?: boolean; error?: string };
+export async function apiAdminSetPassword(user_id: number, new_password: string, send_email = true) {
+  const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_set_password", user_id, new_password, send_email }) });
+  return r.data as { ok?: boolean; mail_sent?: boolean; error?: string };
 }
 
 export async function apiAdminAddUser(data: {
   name: string; email: string; password: string; role: "student" | "teacher";
-  level?: string; phone?: string; telegram?: string; note?: string;
+  level?: string; phone?: string; telegram?: string; note?: string; send_email?: boolean;
 }) {
   const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_add_user", ...data }) });
-  return r.data as { ok?: boolean; id?: number; error?: string };
+  return r.data as { ok?: boolean; id?: number; mail_sent?: boolean; error?: string };
 }
 
 export async function apiAdminUpdateUser(data: {

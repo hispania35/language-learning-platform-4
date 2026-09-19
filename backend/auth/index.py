@@ -12,7 +12,7 @@ import os
 import secrets
 import psycopg2
 from datetime import datetime, timedelta
-from mailer import send_email, _wrap
+from mailer import send_email, _wrap, welcome_access_email, new_password_email
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -272,10 +272,23 @@ def reset_do(event):
         return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Пароль должен быть не менее 6 символов"})}
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("UPDATE users SET password_hash=%s WHERE id=%s", (new_password, target_user_id))
+    cur.execute(
+        "UPDATE users SET password_hash=%s WHERE id=%s RETURNING name, email",
+        (new_password, target_user_id)
+    )
+    urow = cur.fetchone()
     cur.execute("UPDATE password_resets SET status='done', resolved_at=NOW() WHERE id=%s", (reset_id,))
+    cur.execute("DELETE FROM sessions WHERE user_id=%s", (target_user_id,))
     conn.commit(); cur.close(); conn.close()
-    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}
+
+    sent = False
+    if urow:
+        sent = send_email(
+            urow[1], "Новый пароль для входа",
+            new_password_email(urow[0], urow[1], new_password, _site_url(event)),
+            f"Логин: {urow[1]}, пароль: {new_password}"
+        )
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "mail_sent": sent})}
 
 
 def change_password(event):
@@ -480,6 +493,17 @@ def _admin_only(event):
     return user_id, None
 
 
+def _site_url(event) -> str:
+    """Адрес платформы — берём из заголовка браузера, чтобы ссылка была рабочей."""
+    h = event.get("headers") or {}
+    origin = h.get("origin") or h.get("Origin") or h.get("referer") or h.get("Referer") or ""
+    origin = origin.strip().rstrip("/")
+    if origin.startswith("http") and "localhost" not in origin:
+        parts = origin.split("/")
+        return "/".join(parts[:3])
+    return ""
+
+
 def _avatar_from(name: str) -> str:
     parts = name.split()
     if not parts:
@@ -585,7 +609,7 @@ def admin_set_password(event):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE users SET password_hash=%s WHERE id=%s AND role IN ('student','teacher') RETURNING name",
+        "UPDATE users SET password_hash=%s WHERE id=%s AND role IN ('student','teacher') RETURNING name, email",
         (new_password, int(target))
     )
     row = cur.fetchone()
@@ -595,8 +619,17 @@ def admin_set_password(event):
     cur.execute("UPDATE password_resets SET status='done', resolved_at=NOW() WHERE user_id=%s AND status='pending'", (int(target),))
     cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'system')",
                 (int(target), "Администратор изменил ваш пароль"))
+    cur.execute("DELETE FROM sessions WHERE user_id=%s", (int(target),))
     conn.commit(); cur.close(); conn.close()
-    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}
+
+    sent = False
+    if body.get("send_email", True):
+        sent = send_email(
+            row[1], "Новый пароль для входа",
+            new_password_email(row[0], row[1], new_password, _site_url(event)),
+            f"Логин: {row[1]}, пароль: {new_password}"
+        )
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "mail_sent": sent})}
 
 
 def admin_add_user(event):
@@ -640,7 +673,15 @@ def admin_add_user(event):
     )
     new_id = cur.fetchone()[0]
     conn.commit(); cur.close(); conn.close()
-    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "id": new_id})}
+
+    sent = False
+    if body.get("send_email", True):
+        sent = send_email(
+            email, "Доступ к платформе Hispania 35",
+            welcome_access_email(name, email, password, _site_url(event), role),
+            f"Логин: {email}, пароль: {password}"
+        )
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True, "id": new_id, "mail_sent": sent})}
 
 
 def admin_update_user(event):
