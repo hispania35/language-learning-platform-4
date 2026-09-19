@@ -143,6 +143,10 @@ def handler(event: dict, context) -> dict:
             return add_subject(event, conn, user_id, role)
         if method == "POST" and action == "rename_subject":
             return rename_subject(event, conn, user_id, role)
+        if method == "POST" and action == "unassign_bulk":
+            return unassign_bulk(event, conn, user_id, role)
+        if method == "POST" and action == "assign_bulk":
+            return assign_bulk(event, conn, user_id, role)
         if method == "POST" and action == "move_items":
             return move_items(event, conn, user_id, role)
         if method == "POST" and action == "move_subject":
@@ -359,6 +363,143 @@ def rename_subject(event, conn, user_id, role):
     cur.close()
     conn.close()
     return resp(200, {"ok": True, "id": sid, "name": name})
+
+
+def unassign_bulk(event, conn, user_id, role):
+    """Отозвать выданные материалы у ученика или группы."""
+    if role not in ("teacher", "admin"):
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    body = json.loads(event.get("body") or "{}")
+    subject_id = body.get("subject_id")
+    item_ids = [int(x) for x in (body.get("item_ids") or []) if str(x).isdigit()]
+    group_id = body.get("group_id")
+    raw_ids = body.get("student_ids") or []
+
+    cur = conn.cursor()
+    if subject_id:
+        cur.execute(
+            """WITH RECURSIVE tree AS (
+                   SELECT id FROM library_subjects WHERE id=%s AND teacher_id=%s
+                   UNION ALL
+                   SELECT s.id FROM library_subjects s JOIN tree t ON s.parent_id = t.id
+               )
+               SELECT i.id FROM library_items i
+               WHERE i.teacher_id=%s AND i.subject_id IN (SELECT id FROM tree)""",
+            (int(subject_id), user_id, user_id))
+        item_ids = [r[0] for r in cur.fetchall()]
+
+    student_ids = []
+    if group_id:
+        cur.execute("SELECT student_id FROM group_members WHERE group_id=%s", (int(group_id),))
+        student_ids = [r[0] for r in cur.fetchall()]
+    else:
+        for x in raw_ids:
+            try:
+                student_ids.append(int(x))
+            except (TypeError, ValueError):
+                pass
+
+    if not item_ids or not student_ids:
+        cur.close()
+        conn.close()
+        return resp(400, {"error": "Укажите материалы и получателей"})
+
+    items_in = ",".join(str(i) for i in item_ids)
+    studs_in = ",".join(str(i) for i in student_ids)
+    cur.execute(
+        f"""DELETE FROM library_assignments
+            WHERE item_id IN ({items_in}) AND student_id IN ({studs_in})
+              AND item_id IN (SELECT id FROM library_items WHERE teacher_id=%s)""",
+        (user_id,))
+    removed = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return resp(200, {"ok": True, "removed": removed})
+
+
+def assign_bulk(event, conn, user_id, role):
+    """Выдать сразу пачку файлов или весь каталог — одним запросом."""
+    if role not in ("teacher", "admin"):
+        conn.close()
+        return resp(403, {"error": "Только преподаватель"})
+    body = json.loads(event.get("body") or "{}")
+    group_id = body.get("group_id")
+    raw_ids = body.get("student_ids") or []
+    subject_id = body.get("subject_id")
+    item_ids = [int(x) for x in (body.get("item_ids") or []) if str(x).isdigit()]
+
+    cur = conn.cursor()
+
+    # Каталог целиком — берём его и все вложенные подкаталоги
+    label = body.get("label") or ""
+    if subject_id:
+        cur.execute(
+            """WITH RECURSIVE tree AS (
+                   SELECT id FROM library_subjects WHERE id=%s AND teacher_id=%s
+                   UNION ALL
+                   SELECT s.id FROM library_subjects s JOIN tree t ON s.parent_id = t.id
+               )
+               SELECT i.id FROM library_items i
+               WHERE i.teacher_id=%s AND i.subject_id IN (SELECT id FROM tree)""",
+            (int(subject_id), user_id, user_id))
+        item_ids = [r[0] for r in cur.fetchall()]
+
+    if not item_ids:
+        cur.close()
+        conn.close()
+        return resp(400, {"error": "Нет материалов для выдачи"})
+
+    in_list = ",".join(str(i) for i in item_ids)
+    cur.execute(f"SELECT id FROM library_items WHERE id IN ({in_list}) AND teacher_id=%s", (user_id,))
+    item_ids = [r[0] for r in cur.fetchall()]
+    if not item_ids:
+        cur.close()
+        conn.close()
+        return resp(404, {"error": "Материалы не найдены"})
+
+    student_ids = []
+    if group_id:
+        cur.execute("SELECT student_id FROM group_members WHERE group_id=%s", (int(group_id),))
+        student_ids = [r[0] for r in cur.fetchall()]
+    else:
+        for s in raw_ids:
+            try:
+                student_ids.append(int(s))
+            except (TypeError, ValueError):
+                pass
+    if not student_ids:
+        cur.close()
+        conn.close()
+        return resp(400, {"error": "Выберите ученика или группу"})
+
+    pairs = []
+    for iid in item_ids:
+        for sid in student_ids:
+            pairs.append(cur.mogrify("(%s,%s,%s,%s)", (iid, sid, group_id, user_id)).decode())
+    # Пишем частями, чтобы не упереться в размер запроса
+    for i in range(0, len(pairs), 500):
+        chunk = ",".join(pairs[i:i + 500])
+        cur.execute(
+            f"""INSERT INTO library_assignments (item_id, student_id, group_id, assigned_by)
+                VALUES {chunk} ON CONFLICT (item_id, student_id) DO NOTHING""")
+
+    # Одно уведомление на ученика вместо сотни
+    if len(item_ids) == 1:
+        cur.execute("SELECT title FROM library_items WHERE id=%s", (item_ids[0],))
+        trow = cur.fetchone()
+        text = f"Вам выдана книга: {trow[0] if trow else ''}"
+    else:
+        where = f" из «{label}»" if label else ""
+        text = f"Вам выдано материалов: {len(item_ids)}{where}"
+    values = ",".join(cur.mogrify("(%s,%s,'material')", (sid, text)).decode() for sid in student_ids)
+    cur.execute(f"INSERT INTO notifications (user_id, text, type) VALUES {values}")
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return resp(200, {"ok": True, "items": len(item_ids), "assigned": len(student_ids)})
 
 
 def move_items(event, conn, user_id, role):

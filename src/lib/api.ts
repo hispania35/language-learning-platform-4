@@ -727,6 +727,31 @@ export async function apiRenameLibrarySubject(id: number, name: string, color?: 
   return r.data as { ok?: boolean; error?: string };
 }
 
+export async function apiAssignLibraryBulk(data: {
+  item_ids?: number[];
+  subject_id?: number | null;
+  label?: string;
+  student_ids?: number[];
+  group_id?: number;
+}) {
+  const r = await request(LIBRARY_URL + "?p=assign_bulk", {
+    method: "POST", body: JSON.stringify(data),
+  });
+  return r.data as { ok?: boolean; items?: number; assigned?: number; error?: string };
+}
+
+export async function apiUnassignLibraryBulk(data: {
+  item_ids?: number[];
+  subject_id?: number | null;
+  student_ids?: number[];
+  group_id?: number;
+}) {
+  const r = await request(LIBRARY_URL + "?p=unassign_bulk", {
+    method: "POST", body: JSON.stringify(data),
+  });
+  return r.data as { ok?: boolean; removed?: number; error?: string };
+}
+
 export async function apiMoveLibraryItems(ids: number[], subjectId: number | null) {
   const r = await request(LIBRARY_URL + "?p=move_items", {
     method: "POST", body: JSON.stringify({ ids, subject_id: subjectId }),

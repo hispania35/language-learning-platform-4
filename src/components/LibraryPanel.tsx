@@ -6,9 +6,9 @@ import MoveSubjectDialog from "@/components/library/MoveSubjectDialog";
 import MoveItemsDialog from "@/components/library/MoveItemsDialog";
 import PlaylistBar from "@/components/library/PlaylistBar";
 import {
-  apiGetLibrary, apiDeleteLibraryItem, apiAssignLibraryItem,
+  apiGetLibrary, apiDeleteLibraryItem,
   apiGetStudents, apiGetGroups,
-  apiAddLibrarySubject, apiRenameLibrarySubject, apiDeleteLibrarySubject,
+  apiAddLibrarySubject, apiRenameLibrarySubject, apiDeleteLibrarySubject, apiAssignLibraryBulk, apiUnassignLibraryBulk,
   type LibraryItem, type LibrarySubject, type StudentInfo, type StudentGroup,
 } from "@/lib/api";
 
@@ -61,6 +61,8 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkDel, setBulkDel] = useState(false);
   const [bulkAssign, setBulkAssign] = useState(false);
+  const [assignFolder, setAssignFolder] = useState(false);
+  const [revoke, setRevoke] = useState(false);
   const [bulkDone, setBulkDone] = useState(0);
   const [playing, setPlaying] = useState<number | null>(null);
   const [playlistMode, setPlaylistMode] = useState(
@@ -101,32 +103,62 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
   }, [isTeacher]);
 
   const doAssign = async () => {
-    const ids = bulkAssign ? selected : assignItem ? [assignItem.id] : [];
-    if (!ids.length) return;
     if (!pickedGroup && !pickedStudents.length) { setErr("Выберите ученика или группу"); return; }
+    const target = pickedGroup ? { group_id: pickedGroup } : { student_ids: pickedStudents };
     setAssigning(true);
     setBulkDone(0);
-    const target = pickedGroup ? { group_id: pickedGroup } : { student_ids: pickedStudents };
-    let ok = 0;
-    let people = 0;
-    const failed: string[] = [];
     try {
-      for (const id of ids) {
-        const res = await apiAssignLibraryItem({ item_id: id, ...target });
-        if (res.ok) { ok++; people = res.assigned || people; }
-        else failed.push(items.find(i => i.id === id)?.title || `#${id}`);
-        setBulkDone(d => d + 1);
+      // Отзыв выданного
+      if (revoke) {
+        const res = await apiUnassignLibraryBulk({
+          subject_id: assignFolder && subjectTab !== "all" ? (subjectTab as number) : null,
+          item_ids: assignFolder
+            ? (subjectTab === "all" ? shown.map(i => i.id) : undefined)
+            : (bulkAssign ? selected : assignItem ? [assignItem.id] : []),
+          ...target,
+        });
+        setAssignItem(null); setBulkAssign(false); setAssignFolder(false); setRevoke(false);
+        setPickedStudents([]); setPickedGroup(null);
+        if (res.ok) {
+          setMsg(`Доступ отозван: ${res.removed} ${plural(res.removed || 0, "материал", "материала", "материалов")}`);
+          setTimeout(() => setMsg(""), 4000);
+          if (bulkAssign) exitSelect();
+        } else setErr(res.error || "Не удалось отозвать");
+        load();
+        return;
       }
+
+      // Весь каталог — сервер соберёт список сам, включая подкаталоги
+      if (assignFolder) {
+        const res = await apiAssignLibraryBulk({
+          subject_id: subjectTab === "all" ? null : (subjectTab as number),
+          item_ids: subjectTab === "all" ? shown.map(i => i.id) : undefined,
+          label: zipLabel, ...target,
+        });
+        setAssignFolder(false);
+        setPickedStudents([]); setPickedGroup(null);
+        if (res.ok) {
+          setMsg(`Выдан каталог: ${res.items} ${plural(res.items || 0, "материал", "материала", "материалов")} · получателей: ${res.assigned}`);
+          setTimeout(() => setMsg(""), 4000);
+        } else setErr(res.error || "Не удалось выдать каталог");
+        load();
+        return;
+      }
+
+      const ids = bulkAssign ? selected : assignItem ? [assignItem.id] : [];
+      if (!ids.length) { setAssigning(false); return; }
+
+      const res = await apiAssignLibraryBulk({ item_ids: ids, label: zipLabel, ...target });
+      setBulkDone(ids.length);
       setAssignItem(null); setBulkAssign(false);
       setPickedStudents([]); setPickedGroup(null);
-      if (ok) {
+      if (res.ok) {
         setMsg(ids.length > 1
-          ? `Выдано материалов: ${ok} · получателей: ${people}`
-          : `Книга выдана: ${people} чел.`);
+          ? `Выдано материалов: ${res.items} · получателей: ${res.assigned}`
+          : `Книга выдана: ${res.assigned} чел.`);
         setTimeout(() => setMsg(""), 4000);
         if (bulkAssign) exitSelect();
-      }
-      if (failed.length) setErr(`Не удалось выдать: ${failed.join(", ")}`);
+      } else setErr(res.error || "Не удалось выдать");
       load();
     } catch {
       setErr("Нет связи с сервером");
@@ -700,11 +732,20 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
                 style={{ width: `${(zipDone / shown.length) * 100}%` }} />
             </span>
           )}
-          <button onClick={() => downloadZip(shown, zipLabel)} disabled={zipBusy}
-            className="ml-auto flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-border bg-card text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors disabled:opacity-60">
-            <Icon name={zipBusy ? "Loader" : "Download"} size={13} className={zipBusy ? "animate-spin" : ""} />
-            {zipBusy ? "Собираю..." : "Скачать всё архивом"}
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            {isTeacher && (
+              <button onClick={() => { setAssignFolder(true); setPickedStudents([]); setPickedGroup(null); }}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg red-accent text-white text-xs font-montserrat font-bold hover:opacity-90 transition-opacity">
+                <Icon name="Send" size={13} />
+                Выдать всё
+              </button>
+            )}
+            <button onClick={() => downloadZip(shown, zipLabel)} disabled={zipBusy}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-border bg-card text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors disabled:opacity-60">
+              <Icon name={zipBusy ? "Loader" : "Download"} size={13} className={zipBusy ? "animate-spin" : ""} />
+              {zipBusy ? "Собираю..." : "Скачать всё архивом"}
+            </button>
+          </div>
         </div>
       )}
 
@@ -875,15 +916,26 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
       )}
 
       {/* Выдача */}
-      {(assignItem || bulkAssign) && (
+      {(assignItem || bulkAssign || assignFolder) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/40"
-            onClick={() => { if (!assigning) { setAssignItem(null); setBulkAssign(false); } }} />
+            onClick={() => { if (!assigning) { setAssignItem(null); setBulkAssign(false); setAssignFolder(false); } }} />
           <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-md p-5 animate-scale-in max-h-[90vh] overflow-y-auto">
             <h2 className="font-montserrat font-bold text-base text-foreground">
-              {bulkAssign ? `Выдать ${selected.length} материалов` : "Выдать книгу"}
+              {assignFolder
+                ? "Выдать каталог целиком"
+                : bulkAssign ? `Выдать ${selected.length} материалов` : "Выдать книгу"}
             </h2>
-            {bulkAssign ? (
+            {assignFolder ? (
+              <div className="mt-2 mb-4 flex items-start gap-2 px-3 py-2.5 rounded-lg bg-primary/5 border border-primary/20">
+                <Icon name="FolderCheck" size={15} className="text-primary flex-shrink-0 mt-0.5" />
+                <p className="text-xs font-ibm text-foreground">
+                  <span className="font-montserrat font-bold">{zipLabel}</span>
+                  {" — "}{shown.length} {plural(shown.length, "материал", "материала", "материалов")}
+                  {subjectTab !== "all" && ", включая вложенные каталоги"}
+                </p>
+              </div>
+            ) : bulkAssign ? (
               <div className="mt-2 mb-4 max-h-24 overflow-y-auto rounded-lg border border-border divide-y divide-border">
                 {selected.map(id => (
                   <p key={id} className="px-3 py-1.5 text-xs font-ibm text-foreground truncate">
@@ -953,14 +1005,27 @@ export default function LibraryPanel({ isTeacher }: { isTeacher: boolean }) {
               </div>
             )}
 
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => { setAssignItem(null); setBulkAssign(false); }} disabled={assigning}
+            <button onClick={() => setRevoke(v => !v)} disabled={assigning}
+              className={`w-full mt-3 flex items-center justify-center gap-1.5 py-1.5 rounded-lg border text-xs font-montserrat font-bold transition-colors disabled:opacity-60 ${
+                revoke ? "border-red-300 bg-red-50 text-red-700" : "border-border text-muted-foreground hover:bg-muted"
+              }`}>
+              <Icon name={revoke ? "UserMinus" : "UserPlus"} size={13} />
+              {revoke ? "Режим: отозвать доступ" : "Наоборот — отозвать доступ"}
+            </button>
+
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => { setAssignItem(null); setBulkAssign(false); setAssignFolder(false); setRevoke(false); }}
+                disabled={assigning}
                 className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-60">
                 Отмена
               </button>
               <button onClick={doAssign} disabled={assigning}
-                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60">
-                {assigning ? <><Icon name="Loader" size={14} className="animate-spin" />Выдаю...</> : "Выдать"}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity disabled:opacity-60 ${
+                  revoke ? "bg-red-600" : "red-accent"
+                }`}>
+                {assigning
+                  ? <><Icon name="Loader" size={14} className="animate-spin" />{revoke ? "Отзываю..." : "Выдаю..."}</>
+                  : revoke ? "Отозвать" : "Выдать"}
               </button>
             </div>
           </div>
