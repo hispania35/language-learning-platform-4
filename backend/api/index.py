@@ -1558,6 +1558,7 @@ DEFAULT_SETTINGS = {
     "schedule_mode": "assigned",
     "video_platform": "jitsi",
     "video_link": "",
+    "jitsi_host": "meet.jit.si",
     "notify_chat_sound": True,
     "notify_chat_toast": True,
     "notify_chat_email": False,
@@ -1577,6 +1578,8 @@ def _raw_settings(conn, uid):
     cur.close()
     return dict(row[0]) if row and row[0] else {}
 
+DEAD_JITSI_HOSTS = ("hispania-35.ru",)
+
 def get_settings(conn, user_id, role):
     """Настройки пользователя. Ученик наследует платформу урока и режим расписания от преподавателя."""
     data = dict(DEFAULT_SETTINGS)
@@ -1587,10 +1590,15 @@ def get_settings(conn, user_id, role):
         tid = _teacher_of(conn, user_id)
         if tid:
             tdata = _raw_settings(conn, tid)
-            for key in ("video_platform", "video_link", "schedule_mode"):
+            for key in ("video_platform", "video_link", "jitsi_host", "schedule_mode"):
                 if key in tdata:
                     data[key] = tdata[key]
                     inherited.append(key)
+
+    host = (data.get("jitsi_host") or "").strip().replace("https://", "").replace("http://", "").rstrip("/")
+    if not host or host in DEAD_JITSI_HOSTS:
+        data["jitsi_host"] = DEFAULT_SETTINGS["jitsi_host"]
+
     conn.close()
     return resp(200, {"settings": data, "inherited": inherited})
 

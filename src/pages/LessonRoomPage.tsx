@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useChatAlerts } from "@/hooks/useChatAlerts";
 import { useKeyboardOpen } from "@/hooks/useKeyboardOpen";
-import PLATFORMS, { getPlatform, getPlatformLink } from "@/lib/videoPlatform";
+import PLATFORMS, { getPlatform, getPlatformLink, getJitsiHost } from "@/lib/videoPlatform";
 import Icon from "@/components/ui/icon";
 import WebRTCRoom from "@/components/WebRTCRoom";
 import { apiGetCalendar, apiStartLesson, type Lesson } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
 import ChatPage from "@/pages/ChatPage";
-
-const JITSI_HOST = "hispania-35.ru";
 
 export const buildRoomName = (lesson?: Lesson | null) =>
   lesson ? `hispania-lesson-${lesson.id}` : "hispania-room";
@@ -20,7 +18,7 @@ export const buildRoomUrl = (room: string, userName: string) => {
     const link = getPlatformLink(p);
     if (link) return link.startsWith("http") ? link : `https://${link}`;
   }
-  return `https://${JITSI_HOST}/${room}#userInfo.displayName=%22${encodeURIComponent(userName)}%22&config.prejoinPageEnabled=false`;
+  return `https://${getJitsiHost()}/${room}#userInfo.displayName=%22${encodeURIComponent(userName)}%22&config.prejoinPageEnabled=false`;
 };
 
 interface Props {
@@ -139,7 +137,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
                 const ext = p === "webrtc"
                   ? `${window.location.origin}/?room=${encodeURIComponent(room)}`
                   : p === "jitsi" ? "" : getPlatformLink(p);
-                navigator.clipboard?.writeText(ext || `https://${JITSI_HOST}/${room}`);
+                navigator.clipboard?.writeText(ext || `https://${getJitsiHost()}/${room}`);
               }}
               className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
               <Icon name="Link" size={15} />
@@ -266,7 +264,7 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
         </div>
         <h2 className="font-montserrat font-bold text-lg text-foreground mb-1">Видеоурок</h2>
         <p className="text-sm text-muted-foreground font-ibm mb-5">
-          Занятие проходит в видеоконференции на {JITSI_HOST}
+          Занятие проходит в видеоконференции на {getJitsiHost()}
         </p>
         <button onClick={() => startLesson()}
           className="inline-flex items-center gap-2 px-6 py-3 red-accent text-white rounded-xl text-sm font-montserrat font-bold hover:opacity-90 transition-opacity">

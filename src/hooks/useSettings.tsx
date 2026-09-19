@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import { apiGetSettings, apiSaveSettings, type AppSettings, type HomeBlockPref } from "@/lib/api";
-import { setPlatform, setPlatformLink, type VideoPlatform } from "@/lib/videoPlatform";
+import { setPlatform, setPlatformLink, setJitsiHost, DEFAULT_JITSI_HOST, type VideoPlatform } from "@/lib/videoPlatform";
 
 export const HOME_BLOCKS: { id: string; label: string; hint: string }[] = [
   { id: "welcome", label: "Приветствие", hint: "Полоса прогресса и обращение по имени" },
@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   schedule_mode: "assigned",
   video_platform: "jitsi",
   video_link: "",
+  jitsi_host: DEFAULT_JITSI_HOST,
   notify_chat_sound: true,
   notify_chat_toast: true,
   notify_chat_email: false,
@@ -62,6 +63,7 @@ export function SettingsProvider({ enabled, children }: { enabled: boolean; chil
       setPlatform(p);
       if (s.video_link) setPlatformLink(p, s.video_link);
     }
+    setJitsiHost(s.jitsi_host || DEFAULT_JITSI_HOST);
   }, []);
 
   const reload = useCallback(async () => {

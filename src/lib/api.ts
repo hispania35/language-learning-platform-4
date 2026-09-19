@@ -906,6 +906,7 @@ export interface AppSettings {
   schedule_mode: "assigned" | "booking";
   video_platform: string;
   video_link: string;
+  jitsi_host: string;
   notify_chat_sound: boolean;
   notify_chat_toast: boolean;
   notify_chat_email: boolean;

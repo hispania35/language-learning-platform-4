@@ -17,6 +17,24 @@ export const PLATFORMS: PlatformInfo[] = [
 ];
 
 const KEY = "video_platform";
+const JITSI_HOST_KEY = "jitsi_host";
+export const DEFAULT_JITSI_HOST = "meet.jit.si";
+
+const DEAD_HOSTS = ["hispania-35.ru"];
+
+export function getJitsiHost(): string {
+  const raw = (localStorage.getItem(JITSI_HOST_KEY) || "").trim();
+  const v = raw.replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  if (!v || DEAD_HOSTS.includes(v)) return DEFAULT_JITSI_HOST;
+  return v;
+}
+
+export function setJitsiHost(host: string) {
+  const clean = host.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  localStorage.setItem(JITSI_HOST_KEY, clean);
+  window.dispatchEvent(new Event("video-platform-changed"));
+}
+
 const LINK_KEY = "video_platform_link";
 
 export function getPlatform(): VideoPlatform {

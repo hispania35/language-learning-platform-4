@@ -2,7 +2,7 @@ import { useState } from "react";
 import { type User } from "@/pages/LoginPage";
 import Icon from "@/components/ui/icon";
 import { useSettings, HOME_BLOCKS } from "@/hooks/useSettings";
-import { PLATFORMS, type VideoPlatform } from "@/lib/videoPlatform";
+import { PLATFORMS, DEFAULT_JITSI_HOST, type VideoPlatform } from "@/lib/videoPlatform";
 import { apiChangePassword, type HomeBlockPref } from "@/lib/api";
 
 interface Props {
@@ -279,6 +279,25 @@ export default function SettingsPage({ user }: Props) {
               placeholder="https://..."
               className="w-full px-3 py-2.5 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 disabled:opacity-60"
             />
+          </div>
+        )}
+
+        {activePlatform === "jitsi" && (
+          <div className="mt-3">
+            <label className="block text-xs font-montserrat font-medium text-muted-foreground mb-1.5">
+              Сервер видеосвязи
+            </label>
+            <input
+              value={settings.jitsi_host || ""}
+              onChange={e => update({ jitsi_host: e.target.value })}
+              onBlur={e => { if (!e.target.value.trim()) update({ jitsi_host: DEFAULT_JITSI_HOST }); }}
+              disabled={platformLocked}
+              placeholder={DEFAULT_JITSI_HOST}
+              className="w-full px-3 py-2.5 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 disabled:opacity-60"
+            />
+            <p className="text-xs text-muted-foreground font-ibm mt-1.5">
+              По умолчанию бесплатный {DEFAULT_JITSI_HOST}. Свой адрес указывайте, только если у вас есть собственный сервер.
+            </p>
           </div>
         )}
 
