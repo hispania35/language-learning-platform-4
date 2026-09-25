@@ -3,11 +3,14 @@ import { type User } from "@/pages/LoginPage";
 import { apiGetHomework, apiUpdateHomework, apiCreateHomework, apiEditHomework, apiDeleteHomework,
   apiGetStudents, apiGetDecks, apiDeleteDeck, type HomeworkItem, type StudentInfo, type CardDeck } from "@/lib/api";
 import Icon from "@/components/ui/icon";
+import useStickyTab from "@/hooks/useStickyTab";
 import { fmtDate } from "@/lib/datetime";
 import CardDeckDialog from "@/components/cards/CardDeckDialog";
 import DeckStudyDialog from "@/components/cards/DeckStudyDialog";
 
 const tabs = ["Все", "Новые", "В процессе", "Проверяется", "Выполнено"];
+/** Короткие коды для адреса — русские слова в ссылке выглядят плохо */
+const tabCodes = ["all", "new", "doing", "review", "done"] as const;
 
 const statusConfig: Record<string, { label: string; cls: string; icon: string }> = {
   pending:    { label: "Новое",       cls: "bg-red-100 text-red-700 border-red-200",     icon: "AlertCircle" },
@@ -21,7 +24,9 @@ const tabMap: Record<string, string | null> = {
 };
 
 export default function HomeworkPage({ user }: { user: User }) {
-  const [activeTab, setActiveTab] = useState("Все");
+  const [tabCode, setTabCode] = useStickyTab("sub", tabCodes, "all");
+  const activeTab = tabs[Math.max(0, tabCodes.indexOf(tabCode))];
+  const setActiveTab = (t: string) => setTabCode(tabCodes[Math.max(0, tabs.indexOf(t))]);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [homework, setHomework] = useState<HomeworkItem[]>([]);
   const [students, setStudents] = useState<StudentInfo[]>([]);

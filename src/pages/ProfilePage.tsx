@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
 import { type User } from "@/pages/LoginPage";
 import Icon from "@/components/ui/icon";
+import useStickyTab from "@/hooks/useStickyTab";
 import { apiResetList, apiResetDo, type PasswordReset } from "@/lib/api";
 import { fmtDateTime } from "@/lib/datetime";
 import ProfileEditor from "@/components/ProfileEditor";
 
 const profileTabs = ["Профиль", "Статистика", "Рейтинг"];
+const allTabs = [...profileTabs, "Сброс паролей"];
+const tabCodes = ["profile", "stats", "rating", "passwords"] as const;
 
 const activityData = [5, 8, 3, 12, 7, 10, 4, 9, 6, 11, 8, 5, 13, 7, 9, 6, 8, 11, 4, 7, 10, 8, 12, 6, 9, 14, 8, 5];
 
@@ -29,7 +32,11 @@ const achievements = [
 
 export default function ProfilePage({ user }: { user: User }) {
   const tabs = (user.role === "teacher" || user.role === "admin") ? [...profileTabs, "Сброс паролей"] : profileTabs;
-  const [activeTab, setActiveTab] = useState("Профиль");
+  const [tabCode, setTabCode] = useStickyTab("sub", tabCodes, "profile");
+  const fromUrl = allTabs[Math.max(0, tabCodes.indexOf(tabCode))];
+  // Ученик мог прийти по ссылке на учительскую вкладку — показываем профиль
+  const activeTab = tabs.includes(fromUrl) ? fromUrl : "Профиль";
+  const setActiveTab = (t: string) => setTabCode(tabCodes[Math.max(0, allTabs.indexOf(t))]);
 
   const [resets, setResets] = useState<PasswordReset[]>([]);
   const [resetsLoading, setResetsLoading] = useState(false);

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { type User } from "@/pages/LoginPage";
 import { apiGetMaterials, apiCreateMaterial, apiUploadMaterial, apiDeleteMaterial, type Material } from "@/lib/api";
 import Icon from "@/components/ui/icon";
+import useStickyTab from "@/hooks/useStickyTab";
 import { fmtDate } from "@/lib/datetime";
 import LibraryPanel from "@/components/LibraryPanel";
 import MaterialAssignDialog from "@/components/materials/MaterialAssignDialog";
@@ -53,7 +54,7 @@ const typeColors: Record<string, string> = {
 };
 
 export default function MaterialsPage({ user }: { user: User }) {
-  const [section, setSection] = useState<"materials" | "library">("materials");
+  const [section, setSection] = useStickyTab("sub", ["materials", "library"] as const, "materials");
   const [activeCategory, setActiveCategory] = useState("Все");
   const [search, setSearch] = useState("");
   const [materials, setMaterials] = useState<Material[]>([]);

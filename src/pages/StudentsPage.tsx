@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import Icon from "@/components/ui/icon";
+import useStickyTab from "@/hooks/useStickyTab";
 import {
   apiGetStudents, apiGetGroups, apiCreateGroup, apiUpdateGroup, apiDeleteGroup, apiUpdateStudent,
   type StudentInfo, type StudentGroup,
@@ -22,7 +23,7 @@ const colorOf = (key: string) => GROUP_COLORS.find(c => c.key === key) || GROUP_
 export default function StudentsPage({ user }: { user: User }) {
   const isTeacher = (user.role === "teacher" || user.role === "admin");
   const { tz: myTz } = useTimezone();
-  const [tab, setTab] = useState<"students" | "groups">("students");
+  const [tab, setTab] = useStickyTab("sub", ["students", "groups"] as const, "students");
   const [students, setStudents] = useState<StudentInfo[]>([]);
   const [groups, setGroups] = useState<StudentGroup[]>([]);
   const [loading, setLoading] = useState(true);

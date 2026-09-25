@@ -25,11 +25,21 @@ import { setPlatform } from "./lib/videoPlatform";
 
 export type Page = "dashboard" | "calendar" | "lesson" | "materials" | "homework" | "exercises" | "students" | "chat" | "profile" | "settings";
 
+const PAGES: Page[] = ["dashboard", "calendar", "lesson", "materials", "homework",
+  "exercises", "students", "chat", "profile", "settings"];
+
+/** Вкладка запоминается в адресе — обновление страницы возвращает туда же */
+const pageFromUrl = (): Page => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("room")) return "lesson";
+  const p = params.get("tab") as Page | null;
+  // "lesson" без кода комнаты открывать нельзя — там нечего показывать
+  return p && p !== "lesson" && PAGES.includes(p) ? p : "dashboard";
+};
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [activePage, setActivePage] = useState<Page>(
-    new URLSearchParams(window.location.search).get("room") ? "lesson" : "dashboard"
-  );
+  const [activePage, setActivePage] = useState<Page>(pageFromUrl);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpNew, setHelpNew] = useState(0);
@@ -107,10 +117,31 @@ export default function App() {
     }).catch(() => setChecking(false));
   }, []);
 
+  // Адрес всегда отражает открытую вкладку — обновление не сбрасывает на главную
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("room")) return;
+    if (params.get("tab") === activePage) return;
+    if (activePage === "dashboard" || activePage === "lesson") params.delete("tab");
+    else params.set("tab", activePage);
+    // Внутренняя вкладка принадлежит прежнему разделу — уносить её с собой нельзя
+    params.delete("sub");
+    const q = params.toString();
+    window.history.replaceState(null, "", window.location.pathname + (q ? `?${q}` : ""));
+  }, [activePage, user]);
+
+  // Кнопки «назад» и «вперёд» в браузере переключают вкладки
+  useEffect(() => {
+    const onPop = () => setActivePage(pageFromUrl());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   const handleLogin = (u: User) => {
     localStorage.setItem("hispania_user", JSON.stringify(u));
     setUser(u);
-    setActivePage(lessonRoom ? "lesson" : "dashboard");
+    setActivePage(lessonRoom ? "lesson" : pageFromUrl());
   };
 
   const handleLogout = async () => {
