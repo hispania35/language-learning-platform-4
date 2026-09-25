@@ -6,6 +6,7 @@ import {
 } from "@/lib/api";
 
 const fmtSize = (b?: number) => {
+  if (b === 0) return "0 КБ";
   if (!b) return "";
   if (b < 1024 * 1024) return `${Math.round(b / 1024)} КБ`;
   if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} МБ`;
@@ -303,6 +304,25 @@ export default function LibraryUploadDialog({
     return acc;
   }, {} as Record<string, number>);
 
+  /** Общий прогресс пачки — считаем по байтам, чтобы полоса учитывала вес файлов */
+  const total = (() => {
+    const bytes = rows.reduce((s, r) => s + r.file.size, 0);
+    const sentBytes = rows.reduce((s, r) => {
+      if (r.state === "done") return s + r.file.size;
+      if (r.state === "run") return s + Math.round(r.file.size * (r.progress || 0) / 100);
+      return s;
+    }, 0);
+    return {
+      files: rows.length,
+      doneFiles: rows.filter(r => r.state === "done").length,
+      failed: rows.filter(r => r.state === "fail").length,
+      bytes,
+      sentBytes,
+      leftBytes: Math.max(bytes - sentBytes, 0),
+      percent: bytes ? Math.min(100, Math.round((sentBytes / bytes) * 100)) : 0,
+    };
+  })();
+
   const allDone = rows.length > 0 && rows.every(r => r.state === "done");
   const field = "mt-1 w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40";
 
@@ -424,11 +444,34 @@ export default function LibraryUploadDialog({
           </button>
         </div>
 
-        {!!rows.length && (
+        {!!rows.length && !busy && (
           <p className="text-[11px] text-muted-foreground font-ibm mt-2">
-            Готово к загрузке: {rows.length} {plural(rows.length, "файл", "файла", "файлов")}
+            Готово к загрузке: {rows.length} {plural(rows.length, "файл", "файла", "файлов")} · {fmtSize(total.bytes)}
             {Object.keys(counts).length > 1 && ` · ${Object.entries(counts).map(([k, v]) => `${k} ${v}`).join(", ")}`}
           </p>
+        )}
+
+        {busy && (
+          <div className="mt-2.5 rounded-lg border border-primary/30 bg-primary/5 p-2.5">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span className="text-xs font-montserrat font-bold text-foreground">
+                Загружено {total.doneFiles} из {total.files}{" "}
+                {plural(total.files, "файла", "файлов", "файлов")}
+              </span>
+              <span className="text-xs font-montserrat font-bold text-primary flex-shrink-0">
+                {total.percent}%
+              </span>
+            </div>
+            <span className="block h-2 rounded-full bg-muted overflow-hidden">
+              <span className="block h-full red-accent transition-all duration-300"
+                style={{ width: `${Math.max(total.percent, 2)}%` }} />
+            </span>
+            <p className="text-[11px] text-muted-foreground font-ibm mt-1.5">
+              {fmtSize(total.sentBytes)} из {fmtSize(total.bytes)}
+              {total.leftBytes > 0 && ` · осталось ${fmtSize(total.leftBytes)}`}
+              {total.failed > 0 && ` · с ошибкой: ${total.failed}`}
+            </p>
+          </div>
         )}
 
         {!!pathCount && (
