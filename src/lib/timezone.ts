@@ -6,43 +6,59 @@ export interface TzOption {
   city: string;
 }
 
-/** Часовые пояса России + страны, где живут наши ученики */
+/** Полный список часовых поясов по смещению UTC */
 export const TIMEZONES: TzOption[] = [
-  { id: "Europe/Kaliningrad", label: "MSK−1", city: "Калининград" },
-  { id: "Europe/Moscow", label: "MSK", city: "Москва, Санкт-Петербург" },
-  { id: "Europe/Samara", label: "MSK+1", city: "Самара, Ижевск" },
-  { id: "Asia/Yekaterinburg", label: "MSK+2", city: "Екатеринбург, Пермь" },
-  { id: "Asia/Omsk", label: "MSK+3", city: "Омск" },
-  { id: "Asia/Krasnoyarsk", label: "MSK+4", city: "Красноярск, Новокузнецк" },
-  { id: "Asia/Irkutsk", label: "MSK+5", city: "Иркутск, Улан-Удэ" },
-  { id: "Asia/Yakutsk", label: "MSK+6", city: "Якутск, Чита" },
-  { id: "Asia/Vladivostok", label: "MSK+7", city: "Владивосток, Хабаровск" },
-  { id: "Asia/Magadan", label: "MSK+8", city: "Магадан, Сахалин" },
-  { id: "Asia/Kamchatka", label: "MSK+9", city: "Камчатка, Анадырь" },
-  { id: "Europe/Minsk", label: "MSK", city: "Минск" },
-  { id: "Asia/Almaty", label: "MSK+3", city: "Алматы, Астана" },
-  { id: "Asia/Tashkent", label: "MSK+2", city: "Ташкент" },
-  { id: "Asia/Tbilisi", label: "MSK+1", city: "Тбилиси" },
-  { id: "Asia/Yerevan", label: "MSK+1", city: "Ереван" },
-  { id: "Asia/Baku", label: "MSK+1", city: "Баку" },
-  { id: "Europe/Kyiv", label: "MSK−1", city: "Киев" },
-  { id: "Europe/Chisinau", label: "MSK−1", city: "Кишинёв" },
-  { id: "Europe/Riga", label: "MSK−1", city: "Рига, Вильнюс, Таллин" },
-  { id: "Europe/Berlin", label: "MSK−2", city: "Берлин, Мадрид, Париж, Рим" },
-  { id: "Europe/London", label: "MSK−3", city: "Лондон, Лиссабон" },
-  { id: "America/New_York", label: "MSK−8", city: "Нью-Йорк, Майами" },
-  { id: "America/Los_Angeles", label: "MSK−11", city: "Лос-Анджелес" },
-  { id: "Asia/Dubai", label: "MSK+1", city: "Дубай" },
-  { id: "Asia/Bangkok", label: "MSK+4", city: "Бангкок, Пхукет" },
-  { id: "Asia/Shanghai", label: "MSK+5", city: "Пекин, Шанхай" },
+  { id: "Etc/GMT+12", label: "UTC−12:00", city: "Внешние малые о-ва США (Бейкер, Хауленд)" },
+  { id: "Pacific/Pago_Pago", label: "UTC−11:00", city: "Американское Самоа, Ниуэ, о-ва Мидуэй" },
+  { id: "Pacific/Honolulu", label: "UTC−10:00", city: "Гавайи, Французская Полинезия, о-ва Кука" },
+  { id: "Pacific/Marquesas", label: "UTC−09:30", city: "Маркизские о-ва" },
+  { id: "America/Anchorage", label: "UTC−09:00", city: "Аляска, о-ва Гамбье" },
+  { id: "America/Los_Angeles", label: "UTC−08:00", city: "США (тихоокеанское), Британская Колумбия, Тихуана" },
+  { id: "America/Denver", label: "UTC−07:00", city: "США (горное), Альберта, Чиуауа" },
+  { id: "America/Chicago", label: "UTC−06:00", city: "США (центральное), Мексика, Гватемала, Коста-Рика" },
+  { id: "America/New_York", label: "UTC−05:00", city: "США (восточное), Колумбия, Перу, Эквадор, Куба" },
+  { id: "America/Halifax", label: "UTC−04:00", city: "Венесуэла, Боливия, Чили, Канада (атлантическое)" },
+  { id: "America/St_Johns", label: "UTC−03:30", city: "Канада (Ньюфаундленд и Лабрадор)" },
+  { id: "America/Sao_Paulo", label: "UTC−03:00", city: "Аргентина, Бразилия, Уругвай, Парагвай" },
+  { id: "Atlantic/South_Georgia", label: "UTC−02:00", city: "Южная Георгия, Фернанду-ди-Норонья" },
+  { id: "Atlantic/Azores", label: "UTC−01:00", city: "Кабо-Верде, Гренландия, Азорские о-ва" },
+  { id: "Europe/London", label: "UTC±00:00", city: "Великобритания, Ирландия, Португалия, Исландия, Марокко" },
+  { id: "Europe/Berlin", label: "UTC+01:00", city: "Германия, Франция, Испания, Италия, Польша, Алжир" },
+  { id: "Europe/Athens", label: "UTC+02:00", city: "Греция, Румыния, Египет, ЮАР, Израиль, Финляндия" },
+  { id: "Europe/Moscow", label: "UTC+03:00", city: "Россия (Москва), Турция, Саудовская Аравия, Кения" },
+  { id: "Asia/Tehran", label: "UTC+03:30", city: "Иран" },
+  { id: "Asia/Dubai", label: "UTC+04:00", city: "ОАЭ, Оман, Азербайджан, Армения, Грузия, Самара" },
+  { id: "Asia/Kabul", label: "UTC+04:30", city: "Афганистан" },
+  { id: "Asia/Yekaterinburg", label: "UTC+05:00", city: "Пакистан, Узбекистан, Казахстан, Екатеринбург" },
+  { id: "Asia/Kolkata", label: "UTC+05:30", city: "Индия, Шри-Ланка" },
+  { id: "Asia/Kathmandu", label: "UTC+05:45", city: "Непал" },
+  { id: "Asia/Omsk", label: "UTC+06:00", city: "Бангладеш, Бутан, Кыргызстан, Омск" },
+  { id: "Asia/Yangon", label: "UTC+06:30", city: "Мьянма, Кокосовые о-ва" },
+  { id: "Asia/Krasnoyarsk", label: "UTC+07:00", city: "Таиланд, Вьетнам, Лаос, Камбоджа, Красноярск" },
+  { id: "Asia/Irkutsk", label: "UTC+08:00", city: "Китай, Сингапур, Малайзия, Филиппины, Иркутск" },
+  { id: "Australia/Eucla", label: "UTC+08:45", city: "Австралия (Юкла)" },
+  { id: "Asia/Yakutsk", label: "UTC+09:00", city: "Япония, Корея, Якутск" },
+  { id: "Australia/Adelaide", label: "UTC+09:30", city: "Австралия (Южная Австралия, Северная территория)" },
+  { id: "Asia/Vladivostok", label: "UTC+10:00", city: "Австралия (Квинсленд), Папуа — Новая Гвинея, Владивосток" },
+  { id: "Australia/Lord_Howe", label: "UTC+10:30", city: "Австралия (о-в Лорд-Хау)" },
+  { id: "Asia/Srednekolymsk", label: "UTC+11:00", city: "Соломоновы о-ва, Новая Каледония, Сретенск" },
+  { id: "Asia/Kamchatka", label: "UTC+12:00", city: "Новая Зеландия, Фиджи, Камчатка, Маршалловы о-ва" },
+  { id: "Pacific/Chatham", label: "UTC+12:45", city: "Новая Зеландия (о-ва Чатем)" },
+  { id: "Pacific/Tongatapu", label: "UTC+13:00", city: "Тонга, Самоа, Кирибати (о-ва Феникс)" },
+  { id: "Pacific/Kiritimati", label: "UTC+14:00", city: "Кирибати (о-ва Лайн)" },
 ];
 
-/** Часовой пояс браузера, если он нам знаком */
+/**
+ * Часовой пояс браузера. Если точного совпадения в списке нет —
+ * берём пояс с тем же смещением от UTC.
+ */
 export function detectTz(): string {
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (tz && TIMEZONES.some(t => t.id === tz)) return tz;
-    return tz || DEFAULT_TZ;
+    const mine = -new Date().getTimezoneOffset();
+    const same = TIMEZONES.find(t => tzOffsetMinutes(t.id) === mine);
+    return same?.id || tz || DEFAULT_TZ;
   } catch {
     return DEFAULT_TZ;
   }

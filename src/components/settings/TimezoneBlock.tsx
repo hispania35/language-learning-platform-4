@@ -36,7 +36,7 @@ export default function TimezoneBlock() {
           onChange={e => apply(e.target.value)}
           className="w-full mt-1.5 px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40">
           {TIMEZONES.map(t => (
-            <option key={t.id} value={t.id}>{t.city} · {t.label}</option>
+            <option key={t.id} value={t.id}>{t.label} — {t.city}</option>
           ))}
           {!TIMEZONES.some(t => t.id === tz) && <option value={tz}>{tz}</option>}
         </select>
