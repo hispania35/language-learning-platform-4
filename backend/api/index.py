@@ -1157,15 +1157,18 @@ def get_support(conn, user_id, role):
     if is_staff:
         cur.execute(
             """SELECT t.id, t.topic, t.status, t.created_at, t.last_at,
-                      u.name, u.email, u.role, t.unread_staff, t.unread_user
+                      u.name, u.email, u.role, t.unread_staff, t.unread_user,
+                      t.closed, t.closed_at
                FROM support_tickets t JOIN users u ON u.id=t.user_id
                WHERE EXISTS (SELECT 1 FROM support_messages m WHERE m.ticket_id=t.id)
-               ORDER BY (t.unread_staff > 0) DESC, COALESCE(t.last_at, t.created_at) DESC LIMIT 100"""
+               ORDER BY t.closed, (t.unread_staff > 0) DESC,
+                        COALESCE(t.last_at, t.created_at) DESC LIMIT 200"""
         )
     else:
         cur.execute(
             """SELECT t.id, t.topic, t.status, t.created_at, t.last_at,
-                      u.name, u.email, u.role, t.unread_staff, t.unread_user
+                      u.name, u.email, u.role, t.unread_staff, t.unread_user,
+                      t.closed, t.closed_at
                FROM support_tickets t JOIN users u ON u.id=t.user_id
                WHERE t.user_id=%s
                  AND EXISTS (SELECT 1 FROM support_messages m WHERE m.ticket_id=t.id)
@@ -1180,6 +1183,8 @@ def get_support(conn, user_id, role):
         "last_at": (r[4] or r[3]).isoformat() if (r[4] or r[3]) else None,
         "user_name": r[5], "user_email": r[6], "user_role": r[7],
         "unread": r[8] if is_staff else r[9],
+        "closed": bool(r[10]),
+        "closed_at": r[11].isoformat() if r[11] else None,
         "messages": [],
     } for r in rows]
 
@@ -1201,8 +1206,8 @@ def get_support(conn, user_id, role):
             })
 
     cur.close(); conn.close()
-    total_unread = sum(t["unread"] for t in tickets)
-    new_count = len([t for t in tickets if t["unread"] > 0])
+    total_unread = sum(t["unread"] for t in tickets if not t["closed"])
+    new_count = len([t for t in tickets if t["unread"] > 0 and not t["closed"]])
     return resp(200, {"tickets": tickets, "new_count": new_count, "unread": total_unread})
 
 
@@ -1277,12 +1282,12 @@ def create_support(event, conn, user_id, user_name, role):
 
     if is_staff:
         cur.execute(
-            """UPDATE support_tickets SET last_at=NOW(), status='done',
-                   unread_user=unread_user+1, unread_staff=0 WHERE id=%s""", (tid,))
+            """UPDATE support_tickets SET last_at=NOW(), status='done', closed=FALSE,
+                   closed_at=NULL, unread_user=unread_user+1, unread_staff=0 WHERE id=%s""", (tid,))
     else:
         cur.execute(
-            """UPDATE support_tickets SET last_at=NOW(), status='new',
-                   unread_staff=unread_staff+1, unread_user=0 WHERE id=%s""", (tid,))
+            """UPDATE support_tickets SET last_at=NOW(), status='new', closed=FALSE,
+                   closed_at=NULL, unread_staff=unread_staff+1, unread_user=0 WHERE id=%s""", (tid,))
 
     short = (message[:80] + ("..." if len(message) > 80 else "")) if message else "файл"
     sent = 0
@@ -1357,11 +1362,21 @@ def answer_support(event, conn, user_id, role):
         cur.close(); conn.close()
         return resp(403, {"error": "Это чужое обращение"})
 
-    if body.get("close"):
+    if body.get("close") is not None:
         if role != "admin":
             cur.close(); conn.close()
             return resp(403, {"error": "Закрыть обращение может администратор"})
-        cur.execute("UPDATE support_tickets SET status='done', unread_staff=0 WHERE id=%s", (int(ticket_id),))
+        if body.get("close"):
+            cur.execute(
+                """UPDATE support_tickets SET closed=TRUE, closed_at=NOW(), closed_by=%s,
+                       status='done', unread_staff=0 WHERE id=%s""",
+                (user_id, int(ticket_id)))
+            cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'system')",
+                        (row[0], "Ваше обращение в поддержку закрыто"))
+        else:
+            cur.execute(
+                """UPDATE support_tickets SET closed=FALSE, closed_at=NULL, closed_by=NULL,
+                       status='new' WHERE id=%s""", (int(ticket_id),))
     elif role == "admin":
         cur.execute("UPDATE support_tickets SET unread_staff=0 WHERE id=%s", (int(ticket_id),))
     else:

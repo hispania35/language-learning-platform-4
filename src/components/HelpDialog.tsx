@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
-import { apiSendSupport, apiGetSupport, apiReadSupport, type SupportTicket } from "@/lib/api";
+import { apiSendSupport, apiGetSupport, apiReadSupport, apiCloseSupport, type SupportTicket } from "@/lib/api";
 
 const TOPICS = [
   { id: "tech", label: "Не работает", icon: "TriangleAlert" },
@@ -57,7 +57,7 @@ function Attachment({ url, name, type }: { url: string; name?: string; type?: st
 }
 
 export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => void }) {
-  const [view, setView] = useState<"write" | "list">(isAdmin ? "list" : "write");
+  const [view, setView] = useState<"write" | "list" | "closed">(isAdmin ? "list" : "write");
   const [openId, setOpenId] = useState<number | null>(null);
   const [topic, setTopic] = useState("tech");
   const [text, setText] = useState("");
@@ -133,10 +133,25 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
     setBusy(false);
     if (!res?.ok) { setErr(res?.error || "Не удалось отправить"); return; }
     setReply(""); setReplyFile(null);
+    setView("list");
     load();
   };
 
-  const totalUnread = tickets.reduce((a, t) => a + (t.unread || 0), 0);
+  const toggleClosed = async (ticketId: number, close: boolean) => {
+    setBusy(true);
+    const res = await apiCloseSupport(ticketId, close).catch(() => null);
+    setBusy(false);
+    if (!res?.ok) { setErr(res?.error || "Не получилось"); return; }
+    setDone(close ? "Обращение закрыто" : "Обращение снова активно");
+    setTimeout(() => setDone(""), 3000);
+    if (close) { setOpenId(null); setView("list"); }
+    load();
+  };
+
+  const active = tickets.filter(t => !t.closed);
+  const closed = tickets.filter(t => t.closed);
+  const shown = view === "closed" ? closed : active;
+  const totalUnread = active.reduce((a, t) => a + (t.unread || 0), 0);
   const open = tickets.find(t => t.id === openId) || null;
 
   return (
@@ -155,6 +170,18 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
               {open ? open.topic_label : isAdmin ? "Обращения в поддержку" : "Помощь"}
             </span>
           </h2>
+          {open && isAdmin && (
+            <button onClick={() => toggleClosed(open.id, !open.closed)} disabled={busy}
+              title={open.closed ? "Вернуть в активные" : "Закрыть обращение"}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-montserrat font-bold transition-colors flex-shrink-0 ${
+                open.closed
+                  ? "border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                  : "border-green-200 text-green-700 hover:bg-green-50"
+              }`}>
+              <Icon name={open.closed ? "RotateCcw" : "CheckCheck"} size={13} />
+              <span className="hidden sm:inline">{open.closed ? "Вернуть" : "Закрыть"}</span>
+            </button>
+          )}
           <button onClick={onClose} disabled={busy} className="p-1 rounded-md hover:bg-muted transition-colors">
             <Icon name="X" size={18} className="text-muted-foreground" />
           </button>
@@ -172,11 +199,22 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
               className={`flex-1 py-2 rounded-lg text-xs font-montserrat font-bold transition-colors flex items-center justify-center gap-1.5 ${
                 view === "list" ? "red-accent text-white" : "text-muted-foreground hover:bg-muted"
               }`}>
-              {isAdmin ? "Все обращения" : "Мои обращения"}
+              Активные
               {totalUnread > 0 && (
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
                   view === "list" ? "bg-white/25" : "bg-primary text-white"
                 }`}>{totalUnread}</span>
+              )}
+            </button>
+            <button onClick={() => { setView("closed"); setDone(""); }}
+              className={`flex-1 py-2 rounded-lg text-xs font-montserrat font-bold transition-colors flex items-center justify-center gap-1.5 ${
+                view === "closed" ? "red-accent text-white" : "text-muted-foreground hover:bg-muted"
+              }`}>
+              Закрытые
+              {closed.length > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                  view === "closed" ? "bg-white/25" : "bg-muted-foreground/15 text-muted-foreground"
+                }`}>{closed.length}</span>
               )}
             </button>
           </div>
@@ -206,6 +244,16 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
                   </div>
                 </div>
               ))}
+
+              {open.closed && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border">
+                  <Icon name="CheckCheck" size={14} className="text-green-600 flex-shrink-0" />
+                  <p className="text-xs text-muted-foreground font-ibm">
+                    Обращение закрыто {fmtDate(open.closed_at)}.
+                    {isAdmin ? " Новое сообщение вернёт его в активные." : " Напишите, если вопрос остался."}
+                  </p>
+                </div>
+              )}
               <div ref={feedEnd} />
             </div>
           ) : view === "write" ? (
@@ -264,9 +312,11 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
             </div>
           ) : loading ? (
             <p className="text-xs text-muted-foreground font-ibm">Загружаю...</p>
-          ) : !tickets.length ? (
+          ) : !shown.length ? (
             <p className="text-xs text-muted-foreground font-ibm px-3 py-2 rounded-lg bg-muted">
-              {isAdmin ? "Обращений пока нет" : "Вы ещё не писали в поддержку"}
+              {view === "closed"
+                ? "Закрытых обращений нет"
+                : isAdmin ? "Активных обращений нет" : "Вы ещё не писали в поддержку"}
             </p>
           ) : (
             <div className="space-y-2">
@@ -276,12 +326,13 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
                   <p className="text-xs text-green-700 font-ibm">{done}</p>
                 </div>
               )}
-              {tickets.map(t => {
+              {shown.map(t => {
                 const last = t.messages[t.messages.length - 1];
                 return (
                   <button key={t.id} onClick={() => openTicket(t)}
                     className={`w-full text-left rounded-lg border p-3 transition-colors hover:bg-muted/40 ${
-                      t.unread > 0 ? "border-primary/40 bg-primary/5" : "border-border"
+                      t.closed ? "border-border opacity-70"
+                        : t.unread > 0 ? "border-primary/40 bg-primary/5" : "border-border"
                     }`}>
                     <div className="flex items-center gap-2 flex-wrap mb-1">
                       <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-montserrat font-bold">
@@ -300,7 +351,9 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
                     </p>
                     <p className="text-[11px] text-muted-foreground font-ibm mt-0.5">
                       {t.messages.length} {t.messages.length === 1 ? "сообщение" : "сообщений"}
-                      {t.status === "done" ? " · отвечено" : " · ждёт ответа"}
+                      {t.closed
+                        ? ` · закрыто ${fmtDate(t.closed_at)}`
+                        : t.status === "done" ? " · отвечено" : " · ждёт ответа"}
                     </p>
                   </button>
                 );
@@ -331,7 +384,7 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
                 onKeyDown={e => {
                   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(open.id); }
                 }}
-                placeholder={isAdmin ? "Ответить ученику" : "Уточнить вопрос"}
+                placeholder={open.closed ? "Написать — обращение снова откроется" : isAdmin ? "Ответить ученику" : "Уточнить вопрос"}
                 className="flex-1 px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 resize-none max-h-24" />
               <button onClick={() => sendReply(open.id)} disabled={busy || (reply.trim().length < 2 && !replyFile)}
                 className="w-9 h-9 rounded-lg red-accent text-white flex items-center justify-center hover:opacity-90 disabled:opacity-40 flex-shrink-0">

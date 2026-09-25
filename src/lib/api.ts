@@ -241,6 +241,8 @@ export interface SupportTicket {
   user_email: string;
   user_role: string;
   unread: number;
+  closed: boolean;
+  closed_at: string | null;
   messages: SupportMessage[];
 }
 
@@ -262,9 +264,16 @@ export async function apiSendSupport(data: {
   return r.data as { ok?: boolean; id?: number; mail_sent?: boolean; file_url?: string; error?: string };
 }
 
-export async function apiReadSupport(id: number, close?: boolean) {
+export async function apiReadSupport(id: number) {
   const r = await request(API_URL + "?p=support", {
-    method: "PUT", body: JSON.stringify({ id, close: !!close }),
+    method: "PUT", body: JSON.stringify({ id }),
+  });
+  return r.data as { ok?: boolean; error?: string };
+}
+
+export async function apiCloseSupport(id: number, close: boolean) {
+  const r = await request(API_URL + "?p=support", {
+    method: "PUT", body: JSON.stringify({ id, close }),
   });
   return r.data as { ok?: boolean; error?: string };
 }
