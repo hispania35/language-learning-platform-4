@@ -108,13 +108,16 @@ def lesson_started_email(student_name, topic, room_url, teacher_name=""):
     )
 
 
-def lesson_reminder_email(student_name, topic, time_str, date_str, room_url, hours_text):
+def lesson_reminder_email(student_name, topic, time_str, date_str, room_url, hours_text, local_time=""):
+    when = (f"Дата: <b>{date_str}</b>, время: <b>{local_time}</b> по вашему времени "
+            f"({time_str} по Москве)." if local_time
+            else f"Дата: <b>{date_str}</b>, время: <b>{time_str}</b>.")
     return _wrap(
         "Напоминание о занятии",
         [
             f"{student_name}, здравствуйте!",
             f"Напоминаем: {hours_text} у вас занятие <b>«{topic}»</b>.",
-            f"Дата: <b>{date_str}</b>, время: <b>{time_str}</b>.",
+            when,
         ],
         "Открыть урок", room_url,
     )

@@ -7,6 +7,7 @@ import { apiChangePassword, type HomeBlockPref } from "@/lib/api";
 import AdminEmailBlock from "@/components/settings/AdminEmailBlock";
 import PeopleManager from "@/components/settings/PeopleManager";
 import RegistrationToggle from "@/components/settings/RegistrationToggle";
+import TimezoneBlock from "@/components/settings/TimezoneBlock";
 
 interface Props {
   user: User;
@@ -372,6 +373,11 @@ export default function SettingsPage({ user }: Props) {
             </div>
           )}
         </div>
+      </Section>
+
+      <Section num={10} title="Часовой пояс" icon="Globe"
+        hint="Время уроков и уведомлений в вашем поясе">
+        <TimezoneBlock />
       </Section>
     </div>
   );

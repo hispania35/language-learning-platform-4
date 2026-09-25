@@ -214,6 +214,7 @@ export interface Profile {
   telegram?: string;
   whatsapp?: string;
   about?: string;
+  timezone?: string;
   notify_email?: boolean;
   notify_new_lesson?: boolean;
   notify_cancel?: boolean;

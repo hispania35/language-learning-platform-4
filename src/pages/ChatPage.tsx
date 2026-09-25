@@ -7,15 +7,13 @@ import {
   type ChatMessage, type ChatContact, type ChatGroup,
 } from "@/lib/api";
 import { useChatAlerts } from "@/hooks/useChatAlerts";
+import { fmtTime } from "@/lib/datetime";
 
 type Target = { kind: "user"; id: number; name: string; avatar: string }
             | { kind: "group"; id: number; name: string; count: number };
 
 function timeOf(iso?: string | null) {
-  if (!iso) return "";
-  const d = new Date(iso.replace(" ", "T"));
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return fmtTime(iso);
 }
 
 function fmtSec(s: number) {

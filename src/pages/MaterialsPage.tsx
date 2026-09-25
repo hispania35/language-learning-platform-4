@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { type User } from "@/pages/LoginPage";
 import { apiGetMaterials, apiCreateMaterial, apiUploadMaterial, apiDeleteMaterial, type Material } from "@/lib/api";
 import Icon from "@/components/ui/icon";
+import { fmtDate } from "@/lib/datetime";
 import LibraryPanel from "@/components/LibraryPanel";
 import MaterialAssignDialog from "@/components/materials/MaterialAssignDialog";
 
@@ -138,11 +139,8 @@ export default function MaterialsPage({ user }: { user: User }) {
     else setError(res.error || "Не удалось удалить");
   };
 
-  const formatDate = (dateStr: string) => {
-    try {
-      return new Date(dateStr).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
-    } catch { return dateStr; }
-  };
+  // created_at — UTC-метка с сервера
+  const formatDate = (dateStr: string) => fmtDate(dateStr, true) || dateStr;
 
   return (
     <div className="max-w-5xl mx-auto space-y-5">

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { apiSendSupport, apiGetSupport, apiReadSupport, apiCloseSupport, type SupportTicket } from "@/lib/api";
+import { fmtDateTime } from "@/lib/datetime";
 
 const TOPICS = [
   { id: "tech", label: "Не работает", icon: "TriangleAlert" },
@@ -12,14 +13,8 @@ const TOPICS = [
 
 interface Attach { data: string; name: string; mime: string; preview: string }
 
-const fmtDate = (s: string | null) => {
-  if (!s) return "";
-  try {
-    return new Date(s).toLocaleDateString("ru-RU", {
-      day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
-    });
-  } catch { return ""; }
-};
+// created_at / last_at / closed_at — UTC-метки с сервера
+const fmtDate = (s: string | null) => fmtDateTime(s);
 
 function FileBar({ file, onClear, busy }: { file: Attach; onClear: () => void; busy: boolean }) {
   return (

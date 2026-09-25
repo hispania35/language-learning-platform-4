@@ -8,7 +8,7 @@ GET  /students  — список студентов (только teacher)
 import json
 import os
 import psycopg2
-from datetime import date
+from datetime import date, timezone
 
 CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -17,7 +17,9 @@ CORS = {
 }
 
 def get_conn():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    # Единая зона UTC: время уходит на фронт с меткой зоны, там переводится в пояс пользователя
+    conn = psycopg2.connect(os.environ["DATABASE_URL"], options="-c timezone=UTC")
+    return conn
 
 def get_user(token, conn):
     cur = conn.cursor()
@@ -101,7 +103,7 @@ def get_homework(conn, user_id, role):
         if item.get("due_date"):
             item["due_date"] = item["due_date"].strftime("%Y-%m-%d")
         if item.get("created_at"):
-            item["created_at"] = item["created_at"].isoformat()
+            item["created_at"] = item["created_at"].replace(tzinfo=timezone.utc).isoformat()
         result.append(item)
 
     return {"statusCode": 200, "headers": CORS, "body": json.dumps({"homework": result})}

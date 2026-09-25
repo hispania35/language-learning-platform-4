@@ -15,6 +15,7 @@ import SettingsPage from "./pages/SettingsPage";
 import LoginPage, { type User } from "./pages/LoginPage";
 import Sidebar from "./components/Sidebar";
 import HelpDialog from "./components/HelpDialog";
+import { TimezoneProvider } from "./hooks/useTimezone";
 import TopBar from "./components/TopBar";
 import ChatToasts from "./components/ChatToasts";
 import { ChatAlertsProvider } from "./hooks/useChatAlerts";
@@ -164,6 +165,7 @@ export default function App() {
   return (
     <TooltipProvider>
     <SettingsProvider enabled={!!user}>
+    <TimezoneProvider enabled={!!user}>
     <ChatAlertsProvider enabled={!!user}>
       <Toaster />
       <ChatToasts onNavigate={setActivePage} />
@@ -206,6 +208,7 @@ export default function App() {
         />
       )}
     </ChatAlertsProvider>
+    </TimezoneProvider>
     </SettingsProvider>
     </TooltipProvider>
   );

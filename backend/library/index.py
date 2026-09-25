@@ -23,11 +23,23 @@ MAX_MB = 60           # прямая загрузка через функцию 
 MAX_DIRECT_MB = 2048  # загрузка браузером напрямую в облако (видео до 2 ГБ)
 
 
+def _json_time(o):
+    """Время всегда уходит как UTC с меткой зоны — фронт переведёт в пояс пользователя."""
+    import datetime as _dt
+    if isinstance(o, _dt.datetime):
+        if o.tzinfo is None:
+            o = o.replace(tzinfo=_dt.timezone.utc)
+        return o.astimezone(_dt.timezone.utc).isoformat()
+    if isinstance(o, (_dt.date, _dt.time)):
+        return o.isoformat()
+    return str(o)
+
+
 def resp(code, data):
     return {
         "statusCode": code,
         "headers": {**CORS, "Content-Type": "application/json"},
-        "body": json.dumps(data, default=str),
+        "body": json.dumps(data, default=_json_time),
         "isBase64Encoded": False,
     }
 
@@ -124,7 +136,7 @@ def handler(event: dict, context) -> dict:
     if method == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
 
-    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    conn = psycopg2.connect(os.environ["DATABASE_URL"], options="-c timezone=UTC")
     user = auth(event, conn)
     if not user:
         conn.close()

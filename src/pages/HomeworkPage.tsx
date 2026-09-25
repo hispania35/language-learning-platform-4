@@ -3,6 +3,7 @@ import { type User } from "@/pages/LoginPage";
 import { apiGetHomework, apiUpdateHomework, apiCreateHomework, apiEditHomework, apiDeleteHomework,
   apiGetStudents, apiGetDecks, apiDeleteDeck, type HomeworkItem, type StudentInfo, type CardDeck } from "@/lib/api";
 import Icon from "@/components/ui/icon";
+import { fmtDate } from "@/lib/datetime";
 import CardDeckDialog from "@/components/cards/CardDeckDialog";
 import DeckStudyDialog from "@/components/cards/DeckStudyDialog";
 
@@ -139,10 +140,9 @@ export default function HomeworkPage({ user }: { user: User }) {
     }
   };
 
-  const formatDate = (d: string) => {
-    try { return new Date(d).toLocaleDateString("ru-RU", { day: "numeric", month: "long" }); }
-    catch { return d; }
-  };
+  // due_date приходит как "YYYY-MM-DD" — привязываем к полудню, чтобы пояс не сдвинул день
+  const formatDate = (d: string) =>
+    fmtDate(d.length === 10 ? `${d}T12:00:00` : d) || d;
 
   return (
     <div className="max-w-4xl mx-auto space-y-5">

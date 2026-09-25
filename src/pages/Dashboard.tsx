@@ -7,6 +7,7 @@ import {
   apiGetCalendar, apiGetHomework, apiGetMaterials, apiGetLeaderboard, apiGetChatContacts,
   type Lesson, type HomeworkItem, type Material, type LeaderboardEntry, type ChatContact,
 } from "@/lib/api";
+import { fmtTime, fmtAgo, dayLabel } from "@/lib/datetime";
 
 interface DashboardProps {
   onNavigate: (page: Page) => void;
@@ -31,16 +32,8 @@ const typeIcon = (t: string) =>
 const toKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-const relDate = (iso: string) => {
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  const key = toKey(d);
-  const now = new Date();
-  if (key === toKey(now)) return "Сегодня";
-  const yest = new Date(now); yest.setDate(now.getDate() - 1);
-  if (key === toKey(yest)) return "Вчера";
-  return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
-};
+// created_at и подобные метки приходят с сервера в UTC — форматируем в поясе пользователя
+const relDate = (iso: string) => dayLabel(iso) || iso;
 
 const dueLabel = (iso?: string) => {
   if (!iso) return "без срока";
@@ -54,16 +47,14 @@ const dueLabel = (iso?: string) => {
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
 };
 
+// last_at — полный UTC-таймстемп с сервера
 const chatTime = (iso?: string | null) => {
   if (!iso) return "";
-  const d = new Date(iso.replace(" ", "T"));
-  if (isNaN(d.getTime())) return "";
-  const key = toKey(d);
-  const now = new Date();
-  if (key === toKey(now)) return d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  const yest = new Date(now); yest.setDate(now.getDate() - 1);
-  if (key === toKey(yest)) return "вчера";
-  return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+  const label = dayLabel(iso);
+  if (!label) return "";
+  if (label === "Сегодня") return fmtTime(iso);
+  if (label === "Вчера") return "вчера";
+  return fmtAgo(iso);
 };
 
 export default function Dashboard({ onNavigate, onOpenChat, user }: DashboardProps) {

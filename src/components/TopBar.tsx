@@ -3,6 +3,7 @@ import { type Page } from "@/App";
 import { type User } from "@/pages/LoginPage";
 import { apiGetNotifications, apiMarkNotificationsRead, apiChangePassword, apiGetMaterials, apiGetHomework, apiGetCalendar, type Notification, type Material, type HomeworkItem, type Lesson } from "@/lib/api";
 import Icon from "@/components/ui/icon";
+import { fmtAgo } from "@/lib/datetime";
 import PLATFORMS, { getPlatform, setPlatform, getPlatformLink, setPlatformLink, type VideoPlatform } from "@/lib/videoPlatform";
 
 const pageTitles: Record<Page, string> = {
@@ -109,16 +110,7 @@ export default function TopBar({ activePage, onMenuClick, user, onLogout, onNavi
     }
   };
 
-  const formatTime = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      const now = new Date();
-      const diff = Math.floor((now.getTime() - d.getTime()) / 60000);
-      if (diff < 60) return `${diff} мин назад`;
-      if (diff < 1440) return `${Math.floor(diff/60)} ч назад`;
-      return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-    } catch { return ""; }
-  };
+  const formatTime = (dateStr: string) => fmtAgo(dateStr);
 
   const handleChangePassword = async () => {
     setSettingsError("");

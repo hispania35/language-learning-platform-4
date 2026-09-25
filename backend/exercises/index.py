@@ -24,17 +24,31 @@ GPT_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
 TEMPLATES = ("quiz", "match", "gaps", "order", "truefalse", "cards")
 
 
+def _json_time(o):
+    """Время всегда уходит как UTC с меткой зоны — фронт переведёт в пояс пользователя."""
+    import datetime as _dt
+    if isinstance(o, _dt.datetime):
+        if o.tzinfo is None:
+            o = o.replace(tzinfo=_dt.timezone.utc)
+        return o.astimezone(_dt.timezone.utc).isoformat()
+    if isinstance(o, (_dt.date, _dt.time)):
+        return o.isoformat()
+    return str(o)
+
+
 def resp(code, data):
     return {
         "statusCode": code,
         "headers": {**CORS, "Content-Type": "application/json"},
-        "body": json.dumps(data, ensure_ascii=False, default=str),
+        "body": json.dumps(data, ensure_ascii=False, default=_json_time),
         "isBase64Encoded": False,
     }
 
 
 def get_conn():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    # Единая зона UTC: время уходит на фронт с меткой зоны, там переводится в пояс пользователя
+    conn = psycopg2.connect(os.environ["DATABASE_URL"], options="-c timezone=UTC")
+    return conn
 
 
 def auth(event, conn):

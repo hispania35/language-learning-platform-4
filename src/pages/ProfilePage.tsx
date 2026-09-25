@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { type User } from "@/pages/LoginPage";
 import Icon from "@/components/ui/icon";
 import { apiResetList, apiResetDo, type PasswordReset } from "@/lib/api";
+import { fmtDateTime } from "@/lib/datetime";
 import ProfileEditor from "@/components/ProfileEditor";
 
 const profileTabs = ["Профиль", "Статистика", "Рейтинг"];
@@ -279,7 +280,7 @@ export default function ProfilePage({ user }: { user: User }) {
                         <p className="text-xs text-muted-foreground font-ibm">{r.email}</p>
                       </div>
                       <p className="ml-auto text-xs text-muted-foreground font-ibm">
-                        {new Date(r.created_at).toLocaleDateString("ru-RU")}
+                        {fmtDateTime(r.created_at)}
                       </p>
                     </div>
                     <div className="flex gap-2">

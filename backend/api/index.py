@@ -35,7 +35,9 @@ CORS = {
 }
 
 def get_conn():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    # Единая зона UTC: время уходит на фронт с меткой зоны, там переводится в пояс пользователя
+    conn = psycopg2.connect(os.environ["DATABASE_URL"], options="-c timezone=UTC")
+    return conn
 
 def get_user(token, conn):
     if not token:
@@ -51,8 +53,20 @@ def get_user(token, conn):
     cur.close()
     return row
 
+def _json_time(o):
+    """Время всегда уходит как UTC с меткой зоны — фронт переведёт в пояс пользователя."""
+    import datetime as _dt
+    if isinstance(o, _dt.datetime):
+        if o.tzinfo is None:
+            o = o.replace(tzinfo=_dt.timezone.utc)
+        return o.astimezone(_dt.timezone.utc).isoformat()
+    if isinstance(o, (_dt.date, _dt.time)):
+        return o.isoformat()
+    return str(o)
+
+
 def resp(status, data):
-    return {"statusCode": status, "headers": CORS, "body": json.dumps(data, default=str)}
+    return {"statusCode": status, "headers": CORS, "body": json.dumps(data, default=_json_time)}
 
 def notify_many(cur, pairs, ntype):
     """Одним запросом создать уведомления: pairs = [(user_id, text), ...]"""
@@ -1139,7 +1153,8 @@ def mark_notifications_read(conn, user_id):
 
 PROFILE_COLS = ["id", "name", "email", "role", "level", "avatar", "phone",
                 "social_name", "social_url", "telegram", "whatsapp", "about",
-                "notify_email", "notify_new_lesson", "notify_cancel", "notify_chat"]
+                "notify_email", "notify_new_lesson", "notify_cancel", "notify_chat",
+                "timezone"]
 
 TOPICS = {
     "tech": "Техническая проблема",
@@ -1394,7 +1409,8 @@ def get_profile(conn, user_id):
                   COALESCE(phone,''), COALESCE(social_name,''), COALESCE(social_url,''),
                   COALESCE(telegram,''), COALESCE(whatsapp,''), COALESCE(about,''),
                   COALESCE(notify_email,TRUE), COALESCE(notify_new_lesson,TRUE),
-                  COALESCE(notify_cancel,TRUE), COALESCE(notify_chat,TRUE)
+                  COALESCE(notify_cancel,TRUE), COALESCE(notify_chat,TRUE),
+                  COALESCE(timezone,'Europe/Moscow')
            FROM users WHERE id=%s""", (user_id,)
     )
     row = cur.fetchone()
@@ -1405,6 +1421,15 @@ def get_profile(conn, user_id):
 
 def update_profile(event, conn, user_id):
     body = json.loads(event.get("body") or "{}")
+
+    # Часовой пояс меняется отдельным запросом — остальные поля не трогаем
+    tz = (body.get("timezone") or "").strip()
+    if tz and len(body) == 1:
+        cur = conn.cursor()
+        cur.execute("UPDATE users SET timezone=%s WHERE id=%s", (tz[:64], user_id))
+        conn.commit(); cur.close()
+        return get_profile(conn, user_id)
+
     email = (body.get("email") or "").strip()
     name = (body.get("name") or "").strip()
     if not name:
@@ -1427,14 +1452,15 @@ def update_profile(event, conn, user_id):
     cur.execute(
         """UPDATE users SET name=%s, email=%s, phone=%s, social_name=%s, social_url=%s,
                telegram=%s, whatsapp=%s, about=%s,
-               notify_email=%s, notify_new_lesson=%s, notify_cancel=%s, notify_chat=%s
+               notify_email=%s, notify_new_lesson=%s, notify_cancel=%s, notify_chat=%s,
+               timezone=COALESCE(NULLIF(%s,''), timezone)
            WHERE id=%s""",
         (name, email, (body.get("phone") or "").strip(),
          (body.get("social_name") or "").strip(), (body.get("social_url") or "").strip(),
          (body.get("telegram") or "").strip(), (body.get("whatsapp") or "").strip(),
          (body.get("about") or "").strip(),
          flag("notify_email"), flag("notify_new_lesson"), flag("notify_cancel"),
-         flag("notify_chat"), user_id)
+         flag("notify_chat"), tz[:64], user_id)
     )
     conn.commit(); cur.close()
     return get_profile(conn, user_id)
@@ -1550,6 +1576,24 @@ def start_lesson(event, conn, user_id, role):
                       for _, sname, semail in students])
     return resp(200, {"ok": True, "room_url": url, "notified": len(students), "emails_sent": sent})
 
+SCHOOL_TZ = "Europe/Moscow"
+
+def in_user_tz(l_date, l_time, user_tz):
+    """Время урока (хранится по школе) в поясе ученика. Возвращает '' если пояс тот же."""
+    if not user_tz or user_tz == SCHOOL_TZ:
+        return ""
+    try:
+        from zoneinfo import ZoneInfo
+        base = datetime.combine(l_date, l_time).replace(tzinfo=ZoneInfo(SCHOOL_TZ))
+        local = base.astimezone(ZoneInfo(user_tz))
+        if local.hour == base.hour and local.date() == base.date():
+            return ""
+        same_day = local.date() == l_date
+        return local.strftime("%H:%M") if same_day else local.strftime("%H:%M, %d.%m")
+    except Exception:
+        return ""
+
+
 def send_reminders(conn):
     """Напоминания за 3 часа. Для уроков до 11:00 — вечером накануне в 20:00."""
     cur = conn.cursor()
@@ -1581,7 +1625,8 @@ def send_reminders(conn):
 
     id_list = ",".join(str(i) for i in due.keys())
     cur.execute(
-        f"""SELECT ls.lesson_id, u.id, u.name, u.email FROM lesson_students ls
+        f"""SELECT ls.lesson_id, u.id, u.name, u.email, COALESCE(u.timezone,'Europe/Moscow')
+            FROM lesson_students ls
             JOIN users u ON u.id=ls.student_id WHERE ls.lesson_id IN ({id_list})"""
     )
     students = cur.fetchall()
@@ -1589,19 +1634,21 @@ def send_reminders(conn):
     already = set(cur.fetchall())
 
     result, notif_rows, msg_rows, rem_rows, letters = [], [], [], [], []
-    for lid, sid, sname, semail in students:
+    for lid, sid, sname, semail, stz in students:
         topic, l_date, l_time, teacher_id, kind, hours_text = due[lid]
         if (lid, sid, kind) in already:
             continue
         url = room_url(lid)
         time_str = l_time.strftime("%H:%M")
         date_str = ru_date(l_date)
-        notif_rows.append((sid, f"Напоминание: {hours_text} занятие «{topic}» в {time_str}"))
+        local = in_user_tz(l_date, l_time, stz)
+        time_note = f"{time_str} (по Москве){f' · {local} у вас' if local else ''}" if local else time_str
+        notif_rows.append((sid, f"Напоминание: {hours_text} занятие «{topic}» в {time_note}"))
         msg_rows.append((teacher_id, sid,
-                         f"Напоминание: {hours_text} урок «{topic}» ({date_str}, {time_str}). Ссылка: {url}"))
+                         f"Напоминание: {hours_text} урок «{topic}» ({date_str}, {time_note}). Ссылка: {url}"))
         rem_rows.append((lid, sid, kind))
         letters.append((semail, f"Напоминание: урок «{topic}» {hours_text}",
-                        lesson_reminder_email(sname, topic, time_str, date_str, url, hours_text)))
+                        lesson_reminder_email(sname, topic, time_str, date_str, url, hours_text, local)))
         result.append({"lesson_id": lid, "student_id": sid, "kind": kind})
 
     if rem_rows:

@@ -11,7 +11,7 @@ import json
 import os
 import secrets
 import psycopg2
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from mailer import send_email, _wrap, welcome_access_email, new_password_email, verify_email_letter, new_signup_admin_email
 
 CORS = {
@@ -21,7 +21,9 @@ CORS = {
 }
 
 def get_conn():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    # Единая зона UTC: время уходит на фронт с меткой зоны, там переводится в пояс пользователя
+    conn = psycopg2.connect(os.environ["DATABASE_URL"], options="-c timezone=UTC")
+    return conn
 
 def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
@@ -285,7 +287,7 @@ def reset_list(event):
     )
     rows = cur.fetchall()
     cur.close(); conn.close()
-    resets = [{"id": r[0], "user_id": r[1], "name": r[2], "email": r[3], "status": r[4], "created_at": r[5].isoformat()} for r in rows]
+    resets = [{"id": r[0], "user_id": r[1], "name": r[2], "email": r[3], "status": r[4], "created_at": r[5].replace(tzinfo=timezone.utc).isoformat()} for r in rows]
     return {"statusCode": 200, "headers": CORS, "body": json.dumps({"resets": resets})}
 
 
