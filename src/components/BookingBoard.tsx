@@ -53,10 +53,12 @@ export default function BookingBoard({ user, onChanged }: { user: User; onChange
   };
 
   const removeSlot = async (s: LessonSlot) => {
-    setBusy(s.id);
-    await apiDeleteSlot(s.id).catch(() => null);
+    setBusy(s.id); setMsg("");
+    const r = await apiDeleteSlot(s.id).catch(() => null);
     setBusy(null);
+    if (!r?.ok) setMsg(r?.error || "Не удалось убрать окно, попробуйте ещё раз");
     await load();
+    onChanged?.();
   };
 
   const saveSlots = async () => {
@@ -156,8 +158,9 @@ export default function BookingBoard({ user, onChanged }: { user: User; onChange
                       </span>
                       {!taken && (
                         <button onClick={() => removeSlot(s)} disabled={busy === s.id} title="Убрать окно"
-                          className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-red-600 transition-colors">
-                          <Icon name="X" size={14} />
+                          className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-red-600 transition-colors disabled:opacity-50">
+                          <Icon name={busy === s.id ? "Loader" : "X"} size={14}
+                            className={busy === s.id ? "animate-spin" : ""} />
                         </button>
                       )}
                     </div>

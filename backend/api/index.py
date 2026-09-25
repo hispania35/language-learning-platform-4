@@ -2009,14 +2009,19 @@ def delete_slot(event, conn, user_id, role):
 
     cur = conn.cursor()
     cur.execute(
-        "UPDATE lesson_slots SET slot_date='1900-01-01' WHERE id=%s AND teacher_id=%s AND booked_by IS NULL",
+        "DELETE FROM lesson_slots WHERE id=%s AND teacher_id=%s AND booked_by IS NULL",
         (int(slot_id), user_id)
     )
     changed = cur.rowcount
+    # Подчищаем окна, спрятанные старым способом (перенос на 1900-01-01)
+    cur.execute(
+        "DELETE FROM lesson_slots WHERE teacher_id=%s AND slot_date='1900-01-01' AND booked_by IS NULL",
+        (user_id,)
+    )
     conn.commit()
     cur.close(); conn.close()
     if not changed:
-        return resp(400, {"error": "Окно занято или не найдено"})
+        return resp(404, {"error": "Окно уже занято или удалено"})
     return resp(200, {"ok": True})
 
 def book_slot(event, conn, user_id, role):
