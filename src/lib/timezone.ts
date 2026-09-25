@@ -96,6 +96,42 @@ export function tzDiffHours(tz: string): number {
   return Math.round((tzOffsetMinutes(tz) - browser) / 60);
 }
 
+/** Разница между двумя поясами в часах: насколько «other» впереди «base» */
+export function tzDiffBetween(other: string, base: string): number {
+  return Math.round((tzOffsetMinutes(other) - tzOffsetMinutes(base)) / 60);
+}
+
+/** Подпись разницы: «+7 ч», «−2 ч» или пустая строка, если время совпадает */
+export function tzDiffLabel(other: string, base: string): string {
+  const d = tzDiffBetween(other, base);
+  if (d === 0) return "";
+  return d > 0 ? `+${d} ч` : `−${Math.abs(d)} ч`;
+}
+
+/**
+ * Время урока в другом поясе. На входе «14:30» в поясе base,
+ * на выходе «21:30» в поясе other (или «21:30, завтра» при переходе через сутки).
+ */
+export function lessonTimeIn(time: string, other: string, base: string, date?: string): string {
+  const hhmm = (time || "").slice(0, 5);
+  if (!/^\d{2}:\d{2}$/.test(hhmm)) return "";
+  const diff = tzDiffBetween(other, base);
+  if (diff === 0) return "";
+
+  const day = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : "2026-01-15";
+  const [y, m, d] = day.split("-").map(Number);
+  const [h, min] = hhmm.split(":").map(Number);
+
+  // Момент урока как «условный UTC», сдвигаем на разницу поясов
+  const at = new Date(Date.UTC(y, m - 1, d, h, min));
+  const shifted = new Date(at.getTime() + diff * 3600000);
+
+  const t = `${String(shifted.getUTCHours()).padStart(2, "0")}:${String(shifted.getUTCMinutes()).padStart(2, "0")}`;
+  const dayShift = shifted.getUTCDate() - at.getUTCDate();
+  if (dayShift === 0) return t;
+  return dayShift > 0 ? `${t}, след. день` : `${t}, пред. день`;
+}
+
 /** Текущее время в указанном поясе, для подсказки в настройках */
 export function nowIn(tz: string): string {
   try {

@@ -1,46 +1,25 @@
+import { TIMEZONES as TZ_LIST, DEFAULT_TZ as TZ_DEFAULT, detectTz, tzTitle } from "@/lib/timezone";
+
 export interface TimezoneOption {
   id: string;
   label: string;
   offset: string;
 }
 
-export const TIMEZONES: TimezoneOption[] = [
-  { id: "Europe/Kaliningrad", label: "Калининград", offset: "UTC+2" },
-  { id: "Europe/Moscow", label: "Москва, Санкт-Петербург", offset: "UTC+3" },
-  { id: "Europe/Samara", label: "Самара, Ижевск", offset: "UTC+4" },
-  { id: "Asia/Yekaterinburg", label: "Екатеринбург, Пермь", offset: "UTC+5" },
-  { id: "Asia/Omsk", label: "Омск", offset: "UTC+6" },
-  { id: "Asia/Krasnoyarsk", label: "Красноярск, Новосибирск", offset: "UTC+7" },
-  { id: "Asia/Irkutsk", label: "Иркутск, Улан-Удэ", offset: "UTC+8" },
-  { id: "Asia/Yakutsk", label: "Якутск, Чита", offset: "UTC+9" },
-  { id: "Asia/Vladivostok", label: "Владивосток, Хабаровск", offset: "UTC+10" },
-  { id: "Asia/Magadan", label: "Магадан, Сахалин", offset: "UTC+11" },
-  { id: "Asia/Kamchatka", label: "Камчатка, Анадырь", offset: "UTC+12" },
-  { id: "Europe/Minsk", label: "Минск", offset: "UTC+3" },
-  { id: "Asia/Almaty", label: "Алматы, Астана", offset: "UTC+5" },
-  { id: "Asia/Tbilisi", label: "Тбилиси", offset: "UTC+4" },
-  { id: "Asia/Yerevan", label: "Ереван", offset: "UTC+4" },
-  { id: "Europe/Kyiv", label: "Киев", offset: "UTC+3" },
-  { id: "Europe/Madrid", label: "Мадрид, Барселона", offset: "UTC+2" },
-  { id: "Europe/Berlin", label: "Берлин, Прага", offset: "UTC+2" },
-  { id: "Europe/Lisbon", label: "Лиссабон", offset: "UTC+1" },
-  { id: "Europe/London", label: "Лондон", offset: "UTC+1" },
-  { id: "Asia/Dubai", label: "Дубай", offset: "UTC+4" },
-  { id: "Asia/Bangkok", label: "Бангкок", offset: "UTC+7" },
-  { id: "America/Argentina/Buenos_Aires", label: "Буэнос-Айрес", offset: "UTC-3" },
-  { id: "America/Mexico_City", label: "Мехико", offset: "UTC-6" },
-];
+/** Единый список поясов — источник в @/lib/timezone */
+export const TIMEZONES: TimezoneOption[] = TZ_LIST.map(t => ({
+  id: t.id, label: t.city, offset: t.label,
+}));
 
-export const DEFAULT_TZ = "Europe/Moscow";
+export const DEFAULT_TZ = TZ_DEFAULT;
 
 export function tzLabel(id?: string): string {
-  const tz = TIMEZONES.find(t => t.id === id);
-  return tz ? `${tz.label} · ${tz.offset}` : id || "не указан";
+  if (!id) return "не указан";
+  return tzTitle(id);
 }
 
 export function guessTimezone(): string {
-  const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return TIMEZONES.some(t => t.id === local) ? local : DEFAULT_TZ;
+  return detectTz();
 }
 
 export interface LanguageOption {

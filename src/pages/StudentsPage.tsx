@@ -6,6 +6,8 @@ import {
 } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
 import { TIMEZONES, LANGUAGES, DEFAULT_TZ } from "@/lib/locales";
+import { useTimezone } from "@/hooks/useTimezone";
+import { nowIn, tzTitle, tzDiffLabel } from "@/lib/timezone";
 
 const GROUP_COLORS = [
   { key: "primary", dot: "bg-primary", soft: "bg-primary/10 text-primary" },
@@ -19,6 +21,7 @@ const colorOf = (key: string) => GROUP_COLORS.find(c => c.key === key) || GROUP_
 
 export default function StudentsPage({ user }: { user: User }) {
   const isTeacher = (user.role === "teacher" || user.role === "admin");
+  const { tz: myTz } = useTimezone();
   const [tab, setTab] = useState<"students" | "groups">("students");
   const [students, setStudents] = useState<StudentInfo[]>([]);
   const [groups, setGroups] = useState<StudentGroup[]>([]);
@@ -242,9 +245,12 @@ export default function StudentsPage({ user }: { user: User }) {
                             </span>
                           );
                         })}
-                        {s.timezone && s.timezone !== DEFAULT_TZ && (
-                          <span className="text-xs text-muted-foreground font-ibm">
-                            {TIMEZONES.find(t => t.id === s.timezone)?.offset || ""}
+                        {s.timezone && tzDiffLabel(s.timezone, myTz) && (
+                          <span title={tzTitle(s.timezone)}
+                            className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-700 font-ibm">
+                            <Icon name="Clock" size={10} />
+                            сейчас {nowIn(s.timezone)}
+                            <span className="opacity-70">({tzDiffLabel(s.timezone, myTz)})</span>
                           </span>
                         )}
                         {inGroups.map(g => {
@@ -401,11 +407,13 @@ export default function StudentsPage({ user }: { user: User }) {
                   onChange={e => setSForm({ ...sForm, timezone: e.target.value })}
                   className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40">
                   {TIMEZONES.map(tz => (
-                    <option key={tz.id} value={tz.id}>{tz.label} · {tz.offset}</option>
+                    <option key={tz.id} value={tz.id}>{tz.offset} — {tz.label}</option>
                   ))}
                 </select>
                 <p className="text-[11px] text-muted-foreground font-ibm mt-1">
-                  Время уроков и напоминания ученик увидит в своём поясе
+                  {tzDiffLabel(sForm.timezone, myTz)
+                    ? `У ученика сейчас ${nowIn(sForm.timezone)} — это ${tzDiffLabel(sForm.timezone, myTz)} к вашему времени`
+                    : "Время совпадает с вашим"}
                 </p>
               </div>
 

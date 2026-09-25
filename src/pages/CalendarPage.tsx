@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
+import StudentTime from "@/components/StudentTime";
+import { useTimezone } from "@/hooks/useTimezone";
 import { apiGetCalendar, apiCreateLesson, apiMoveLesson, apiDeleteLesson, apiUpdateLesson, apiGetStudents, apiGetGroups, apiStartLesson, apiCancelLesson, type Lesson, type StudentInfo, type StudentGroup } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
 import { buildRoomName } from "@/pages/LessonRoomPage";
@@ -45,6 +47,7 @@ const toKey = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoinLesson?: (room: string) => void }) {
+  const { tz: myTz } = useTimezone();
   const today = new Date();
   const todayKey = toKey(today);
   const nowTime = `${String(today.getHours()).padStart(2, "0")}:${String(today.getMinutes()).padStart(2, "0")}`;
@@ -878,6 +881,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                           <span className="text-white font-montserrat font-bold text-[10px]">{s.avatar}</span>
                         </div>
                         <span className="text-xs font-ibm text-foreground truncate flex-1">{s.name}</span>
+                        <StudentTime tz={s.timezone} myTz={myTz} time={form.lesson_time} date={form.lesson_date} />
                         {s.level && <span className="text-[10px] text-muted-foreground">{s.level}</span>}
                       </button>
                     );
@@ -1398,6 +1402,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                           <span className="text-white font-montserrat font-bold text-[10px]">{s.avatar}</span>
                         </div>
                         <span className="text-xs font-ibm text-foreground truncate flex-1">{s.name}</span>
+                        <StudentTime tz={s.timezone} myTz={myTz} time={editForm.lesson_time} date={editForm.lesson_date} />
                         {s.level && <span className="text-[10px] text-muted-foreground">{s.level}</span>}
                       </button>
                     );
