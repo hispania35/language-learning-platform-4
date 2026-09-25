@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import StudentTime from "@/components/StudentTime";
 import { useTimezone } from "@/hooks/useTimezone";
-import { apiGetCalendar, apiCreateLesson, apiMoveLesson, apiDeleteLesson, apiUpdateLesson, apiGetStudents, apiGetGroups, apiStartLesson, apiCancelLesson, type Lesson, type StudentInfo, type StudentGroup } from "@/lib/api";
+import { apiGetCalendar, apiCreateLesson, apiMoveLesson, apiDeleteLesson, apiUpdateLesson, apiGetStudents, apiGetGroups, apiStartLesson, apiCancelLesson, apiGetSlots, type Lesson, type StudentInfo, type StudentGroup, type LessonSlot } from "@/lib/api";
 import { type User } from "@/pages/LoginPage";
 import { buildRoomName } from "@/pages/LessonRoomPage";
 import { useSettings } from "@/hooks/useSettings";
@@ -97,6 +97,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const holdTimer = useRef<number | null>(null);
   const holdFired = useRef(false);
   const [mouseDrag, setMouseDrag] = useState<{ lesson: Lesson; x: number; y: number } | null>(null);
+  const [slots, setSlots] = useState<LessonSlot[]>([]);
   const dragOrigin = useRef<{ x: number; y: number; lesson: Lesson } | null>(null);
   const dragMoved = useRef(false);
 
@@ -105,6 +106,10 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
       .then(res => { if (res.lessons) setLessons(res.lessons); })
       .catch(() => {})
       .finally(() => setLoading(false));
+    // Ученику показываем зелёным только те окна, что открыл преподаватель
+    if (!isTeacher) {
+      apiGetSlots().then(res => { if (res.slots) setSlots(res.slots); }).catch(() => {});
+    }
     if (isTeacher) {
       apiGetStudents().then(res => { if (res.students) setStudents(res.students); }).catch(() => {});
       apiGetGroups().then(res => { if (res.groups) setGroups(res.groups); }).catch(() => {});
@@ -430,6 +435,11 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
   const isPastSlot = (dateKey: string, time: string) =>
     dateKey < todayKey || (dateKey === todayKey && time <= nowTime);
 
+  // Открыл ли преподаватель это время для записи (только для ученика)
+  const openSlot = (dateKey: string, time: string) =>
+    slots.find(s => s.date === dateKey && s.time.slice(0, 5) === time.slice(0, 5) && !s.booked_by);
+  const canBook = (dateKey: string, time: string) => isTeacher || !!openSlot(dateKey, time);
+
   const handleSlotClick = (dateKey: string, time: string) => {
     const lesson = findLesson(dateKey, time);
     setSelected({ date: dateKey, time });
@@ -499,6 +509,8 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
 
   const reloadLessons = () => {
     apiGetCalendar().then(r => { if (r.lessons) setLessons(r.lessons); }).catch(() => {});
+    // Окна могли занять или освободить — перекрашиваем сетку
+    if (!isTeacher) apiGetSlots().then(r => { if (r.slots) setSlots(r.slots); }).catch(() => {});
   };
 
   return (
@@ -662,7 +674,9 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                             <button
                               title={lesson
                                 ? `${lesson.topic} · ${slotPeople(lesson)} · ${time}${isTeacher ? " — нажмите, чтобы начать урок или изменить" : ""}`
-                                : slotGone ? "Время уже прошло" : "Свободное время"}
+                                : slotGone ? "Время уже прошло"
+                                : !canBook(dateKey, time) ? "Преподаватель не открыл это время для записи"
+                                : "Свободное время — можно записаться"}
                               onMouseDown={e => {
                                 if (!isTeacher || !lesson || e.button !== 0) return;
                                 dragMoved.current = false;
@@ -684,6 +698,8 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                 if (isTeacher && lesson) {
                                   setSelected({ date: dateKey, time });
                                   setActionLesson(lesson);
+                                } else if (!lesson && !canBook(dateKey, time)) {
+                                  setSelected({ date: dateKey, time });
                                 } else {
                                   handleSlotClick(dateKey, time);
                                 }
@@ -695,9 +711,11 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                       : "bg-orange-400 text-orange-950 shadow-sm hover:bg-orange-500 cursor-grab active:cursor-grabbing")
                                   : slotGone
                                     ? "bg-muted text-muted-foreground/60 cursor-not-allowed"
-                                    : pickedId !== null
-                                      ? "bg-green-600 text-white ring-2 ring-green-700 ring-offset-1 animate-pulse shadow-sm"
-                                      : "bg-green-600 text-white shadow-sm hover:bg-green-700 hover:shadow-md"}
+                                    : !canBook(dateKey, time)
+                                      ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                                      : pickedId !== null
+                                        ? "bg-green-600 text-white ring-2 ring-green-700 ring-offset-1 animate-pulse shadow-sm"
+                                        : "bg-green-600 text-white shadow-sm hover:bg-green-700 hover:shadow-md"}
                                 ${isSelected ? "ring-2 ring-offset-1 ring-primary" : ""}
                                 ${pickedId === lesson?.id ? "ring-2 ring-offset-1 ring-primary scale-95 shadow-lg" : ""}
                                 ${lesson && mouseDrag?.lesson.id === lesson.id ? "opacity-40" : ""}`}
@@ -715,7 +733,9 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                   </span>
                                 </>
                               ) : (
-                                <span className="sm:hidden text-[11px] font-normal font-ibm opacity-80">{slotGone ? "прошло" : "свободно"}</span>
+                                <span className="sm:hidden text-[11px] font-normal font-ibm opacity-80">
+                                  {slotGone ? "прошло" : canBook(dateKey, time) ? "свободно" : "закрыто"}
+                                </span>
                               )}
                             </button>
 
@@ -764,7 +784,11 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
           </div>
 
           <div className="px-4 py-3 flex items-center gap-4 text-xs text-muted-foreground font-ibm border-t border-border flex-wrap">
-            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-600" /><span>Свободно</span></div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-600" />
+              <span>{isTeacher ? "Свободно" : "Открыто для записи"}</span></div>
+            {!isTeacher && (
+              <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-200" /><span>Время закрыто</span></div>
+            )}
             <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-400" /><span>Занятие назначено</span></div>
             <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-300" /><span>Прошло</span></div>
             <div className="flex items-center gap-1.5 w-full sm:w-auto text-muted-foreground/80">
