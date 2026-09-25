@@ -1149,20 +1149,41 @@ TOPICS = {
     "other": "Другое",
 }
 
+def _store_support_file(body):
+    """Скриншот или файл к обращению — в S3, возвращаем ссылку."""
+    import base64, uuid, boto3
+    raw = base64.b64decode((body.get("file_data") or "").split(",")[-1])
+    if len(raw) > 15 * 1024 * 1024:
+        raise ValueError("Файл больше 15 МБ")
+    name = (body.get("file_name") or "file").strip()
+    mime = body.get("mime") or "application/octet-stream"
+    ftype = "image" if mime.startswith("image/") else "file"
+    ext = name.rsplit(".", 1)[-1] if "." in name else "bin"
+    key = f"support/{uuid.uuid4().hex}.{ext}"
+    s3 = boto3.client("s3", endpoint_url="https://bucket.poehali.dev",
+                      aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+                      aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"])
+    s3.put_object(Bucket="files", Key=key, Body=raw, ContentType=mime)
+    url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+    return url, name, ftype
+
+
 def get_support(conn, user_id, role):
     """Администратор видит все обращения, остальные — только свои."""
     cur = conn.cursor()
     if role == "admin":
         cur.execute(
             """SELECT t.id, t.topic, t.message, t.status, t.answer, t.created_at,
-                      u.name, u.email, u.role, t.answered_at
+                      u.name, u.email, u.role, t.answered_at,
+                      t.file_url, t.file_name, t.file_type
                FROM support_tickets t JOIN users u ON u.id=t.user_id
                ORDER BY (t.status='new') DESC, t.created_at DESC LIMIT 100"""
         )
     else:
         cur.execute(
             """SELECT t.id, t.topic, t.message, t.status, t.answer, t.created_at,
-                      u.name, u.email, u.role, t.answered_at
+                      u.name, u.email, u.role, t.answered_at,
+                      t.file_url, t.file_name, t.file_type
                FROM support_tickets t JOIN users u ON u.id=t.user_id
                WHERE t.user_id=%s ORDER BY t.created_at DESC LIMIT 50""",
             (user_id,)
@@ -1175,6 +1196,7 @@ def get_support(conn, user_id, role):
         "created_at": r[5].isoformat() if r[5] else None,
         "user_name": r[6], "user_email": r[7], "user_role": r[8],
         "answered_at": r[9].isoformat() if r[9] else None,
+        "file_url": r[10], "file_name": r[11], "file_type": r[12],
     } for r in rows]
     new_count = len([t for t in tickets if t["status"] == "new"])
     return resp(200, {"tickets": tickets, "new_count": new_count})
@@ -1187,14 +1209,23 @@ def create_support(event, conn, user_id, user_name, role):
     topic = body.get("topic") or "other"
     if topic not in TOPICS:
         topic = "other"
-    if len(message) < 5:
+    file_url = file_name = file_type = ""
+    if body.get("file_data"):
+        try:
+            file_url, file_name, file_type = _store_support_file(body)
+        except Exception as e:
+            conn.close()
+            return resp(400, {"error": str(e) or "Не удалось загрузить файл"})
+
+    if len(message) < 5 and not file_url:
         conn.close()
         return resp(400, {"error": "Опишите вопрос хотя бы парой слов"})
 
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO support_tickets (user_id, topic, message) VALUES (%s,%s,%s) RETURNING id",
-        (user_id, topic, message[:4000])
+        """INSERT INTO support_tickets (user_id, topic, message, file_url, file_name, file_type)
+           VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (user_id, topic, message[:4000], file_url, file_name[:255], file_type)
     )
     ticket_id = cur.fetchone()[0]
 
@@ -1218,15 +1249,17 @@ def create_support(event, conn, user_id, user_name, role):
         [
             f"{who} <b>{user_name}</b> задал вопрос через кнопку «Помощь».",
             f"Тема: <b>{TOPICS.get(topic)}</b>",
-            f'<span style="display:block;padding:12px;background:#f3f4f6;border-radius:8px">{message[:1500]}</span>',
-        ],
+            f'<span style="display:block;padding:12px;background:#f3f4f6;border-radius:8px">{message[:1500] or "(без текста)"}</span>',
+        ] + ([
+            f'<a href="{file_url}" style="color:#b91c1c;font-weight:bold">Вложение: {file_name}</a>'
+        ] if file_url else []),
     )
     for a in admins:
         if a[1]:
             if send_email(a[1], f"Помощь: {TOPICS.get(topic)} — {user_name}", html, message[:500]):
                 sent += 1
 
-    return resp(200, {"ok": True, "id": ticket_id, "mail_sent": sent > 0})
+    return resp(200, {"ok": True, "id": ticket_id, "mail_sent": sent > 0, "file_url": file_url})
 
 
 def answer_support(event, conn, user_id, role):

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { apiSendSupport, apiGetSupport, apiAnswerSupport, type SupportTicket } from "@/lib/api";
 
@@ -30,6 +30,23 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
   const [loading, setLoading] = useState(true);
   const [answerFor, setAnswerFor] = useState<number | null>(null);
   const [answerText, setAnswerText] = useState("");
+  const [file, setFile] = useState<{ data: string; name: string; mime: string; preview: string } | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const attach = (f: File | null | undefined) => {
+    if (!f) return;
+    if (f.size > 15 * 1024 * 1024) { setErr("Файл больше 15 МБ"); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = String(reader.result || "");
+      setFile({
+        data, name: f.name || "screenshot.png", mime: f.type || "application/octet-stream",
+        preview: f.type.startsWith("image/") ? data : "",
+      });
+      setErr("");
+    };
+    reader.readAsDataURL(f);
+  };
 
   const load = () => {
     apiGetSupport()
@@ -41,13 +58,17 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
   useEffect(() => { load(); }, []);
 
   const send = async () => {
-    if (text.trim().length < 5) { setErr("Опишите вопрос хотя бы парой слов"); return; }
+    if (text.trim().length < 5 && !file) { setErr("Опишите вопрос хотя бы парой слов"); return; }
     setBusy(true); setErr("");
-    const res = await apiSendSupport(topic, text.trim()).catch(() => null);
+    const res = await apiSendSupport(
+      topic, text.trim(),
+      file ? { file_data: file.data, file_name: file.name, mime: file.mime } : null,
+    ).catch(() => null);
     setBusy(false);
     if (!res?.ok) { setErr(res?.error || "Не удалось отправить"); return; }
     setDone("Сообщение отправлено администратору. Ответ придёт на вашу почту и в уведомления.");
     setText("");
+    setFile(null);
     load();
   };
 
@@ -120,8 +141,39 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
 
               <textarea value={text} rows={5} disabled={busy}
                 onChange={e => { setText(e.target.value); setErr(""); setDone(""); }}
-                placeholder="Опишите, что случилось или о чём хотите спросить"
+                onPaste={e => {
+                  const img = Array.from(e.clipboardData.files).find(f => f.type.startsWith("image/"));
+                  if (img) { e.preventDefault(); attach(img); }
+                }}
+                placeholder="Опишите, что случилось. Скриншот можно вставить сюда через Ctrl+V"
                 className="w-full px-3 py-2.5 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 resize-none" />
+
+              <input ref={fileInput} type="file" className="hidden"
+                accept="image/*,application/pdf,.doc,.docx,.txt,.zip"
+                onChange={e => { attach(e.target.files?.[0]); e.target.value = ""; }} />
+
+              {file ? (
+                <div className="flex items-center gap-2.5 p-2 rounded-lg border border-border bg-muted/30">
+                  {file.preview ? (
+                    <img src={file.preview} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0" />
+                  ) : (
+                    <span className="w-12 h-12 rounded bg-muted flex items-center justify-center flex-shrink-0">
+                      <Icon name="FileText" size={18} className="text-muted-foreground" />
+                    </span>
+                  )}
+                  <span className="flex-1 min-w-0 text-xs font-ibm text-foreground truncate">{file.name}</span>
+                  <button onClick={() => setFile(null)} disabled={busy}
+                    className="p-1.5 rounded-md hover:bg-muted transition-colors flex-shrink-0">
+                    <Icon name="X" size={14} className="text-muted-foreground" />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => fileInput.current?.click()} disabled={busy}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-border text-xs font-montserrat font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">
+                  <Icon name="Paperclip" size={14} />
+                  Прикрепить скриншот или файл
+                </button>
+              )}
 
               {err && <p className="text-xs text-red-600 font-ibm">{err}</p>}
               {done && (
@@ -158,7 +210,24 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
                     <span className="text-[11px] text-muted-foreground font-ibm ml-auto">{fmtDate(t.created_at)}</span>
                   </div>
 
-                  <p className="text-sm text-foreground font-ibm whitespace-pre-wrap break-words">{t.message}</p>
+                  {t.message && (
+                    <p className="text-sm text-foreground font-ibm whitespace-pre-wrap break-words">{t.message}</p>
+                  )}
+
+                  {t.file_url && (
+                    t.file_type === "image" ? (
+                      <a href={t.file_url} target="_blank" rel="noreferrer" className="block mt-2">
+                        <img src={t.file_url} alt={t.file_name}
+                          className="max-h-40 rounded-lg border border-border object-contain hover:opacity-90 transition-opacity" />
+                      </a>
+                    ) : (
+                      <a href={t.file_url} target="_blank" rel="noreferrer"
+                        className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors">
+                        <Icon name="Paperclip" size={12} />
+                        {t.file_name || "Вложение"}
+                      </a>
+                    )
+                  )}
 
                   {t.answer && (
                     <div className="mt-2 pl-3 border-l-2 border-primary/40">

@@ -232,6 +232,9 @@ export interface SupportTicket {
   user_name: string;
   user_email: string;
   user_role: string;
+  file_url?: string;
+  file_name?: string;
+  file_type?: string;
 }
 
 export async function apiGetSupport() {
@@ -239,11 +242,15 @@ export async function apiGetSupport() {
   return r.data as { tickets?: SupportTicket[]; new_count?: number; error?: string };
 }
 
-export async function apiSendSupport(topic: string, message: string) {
+export async function apiSendSupport(
+  topic: string,
+  message: string,
+  file?: { file_data: string; file_name: string; mime: string } | null,
+) {
   const r = await request(API_URL + "?p=support", {
-    method: "POST", body: JSON.stringify({ topic, message }),
+    method: "POST", body: JSON.stringify({ topic, message, ...(file || {}) }),
   });
-  return r.data as { ok?: boolean; id?: number; mail_sent?: boolean; error?: string };
+  return r.data as { ok?: boolean; id?: number; mail_sent?: boolean; file_url?: string; error?: string };
 }
 
 export async function apiAnswerSupport(id: number, answer: string) {
