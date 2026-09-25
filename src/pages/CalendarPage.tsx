@@ -675,8 +675,9 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                               title={lesson
                                 ? `${lesson.topic} · ${slotPeople(lesson)} · ${time}${isTeacher ? " — нажмите, чтобы начать урок или изменить" : ""}`
                                 : slotGone ? "Время уже прошло"
-                                : !canBook(dateKey, time) ? "Преподаватель не открыл это время для записи"
-                                : "Свободное время — можно записаться"}
+                                : !canBook(dateKey, time)
+                                  ? (bookingMode ? "Преподаватель не открыл это время для записи" : "На это время занятие не назначено")
+                                  : "Свободное время — можно записаться"}
                               onMouseDown={e => {
                                 if (!isTeacher || !lesson || e.button !== 0) return;
                                 dragMoved.current = false;
@@ -734,7 +735,9 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
                                 </>
                               ) : (
                                 <span className="sm:hidden text-[11px] font-normal font-ibm opacity-80">
-                                  {slotGone ? "прошло" : canBook(dateKey, time) ? "свободно" : "закрыто"}
+                                  {slotGone ? "прошло"
+                                    : canBook(dateKey, time) ? "свободно"
+                                    : bookingMode ? "закрыто" : "нет занятия"}
                                 </span>
                               )}
                             </button>
@@ -784,12 +787,16 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
           </div>
 
           <div className="px-4 py-3 flex items-center gap-4 text-xs text-muted-foreground font-ibm border-t border-border flex-wrap">
-            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-600" />
-              <span>{isTeacher ? "Свободно" : "Открыто для записи"}</span></div>
-            {!isTeacher && (
-              <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-200" /><span>Время закрыто</span></div>
+            {(isTeacher || bookingMode) && (
+              <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-green-600" />
+                <span>{isTeacher ? "Свободно" : "Открыто для записи"}</span></div>
             )}
-            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-400" /><span>Занятие назначено</span></div>
+            {!isTeacher && (
+              <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-200" />
+                <span>{bookingMode ? "Время закрыто" : "Нет занятия"}</span></div>
+            )}
+            <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-orange-400" />
+              <span>{isTeacher ? "Занятие назначено" : "Ваше занятие"}</span></div>
             <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-gray-300" /><span>Прошло</span></div>
             <div className="flex items-center gap-1.5 w-full sm:w-auto text-muted-foreground/80">
               <Icon name="Info" size={13} className="flex-shrink-0" />
