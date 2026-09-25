@@ -255,6 +255,10 @@ def handler(event: dict, context) -> dict:
         if path == "lesson_start" and method == "POST":
             return start_lesson(event, conn, user_id, role)
 
+        # --- Profile stats ---
+        if path == "profile_stats" and method == "GET":
+            return profile_stats(conn, user_id, role)
+
         # --- Students list ---
         if path == "students":
             if method == "GET":
@@ -2143,3 +2147,140 @@ def book_slot(event, conn, user_id, role):
     conn.commit()
     cur.close(); conn.close()
     return resp(200, {"ok": True, "lesson_id": lesson_id})
+
+
+def profile_stats(conn, user_id, role):
+    """Статистика профиля ученика: достижения, успеваемость, активность."""
+    cur = conn.cursor()
+
+    cur.execute(
+        """SELECT COUNT(*), COALESCE(SUM(l.duration_min), 0)
+           FROM lesson_students ls JOIN lessons l ON l.id = ls.lesson_id
+           WHERE ls.student_id = %s
+             AND (l.lesson_date + l.lesson_time) <= NOW()""",
+        (user_id,)
+    )
+    lessons_done, minutes = cur.fetchone()
+
+    cur.execute(
+        """SELECT COUNT(*), COUNT(*) FILTER (WHERE status = 'done'),
+                  COALESCE(AVG(grade) FILTER (WHERE grade IS NOT NULL), 0)
+           FROM homework WHERE student_id = %s""",
+        (user_id,)
+    )
+    hw_total, hw_done, avg_grade = cur.fetchone()
+
+    cur.execute(
+        """SELECT COALESCE(SUM(score), 0), COALESCE(SUM(total), 0), COUNT(*)
+           FROM exercise_results WHERE student_id = %s""",
+        (user_id,)
+    )
+    ex_score, ex_total, ex_count = cur.fetchone()
+
+    # Активность за 28 дней: занятия, сданные работы и упражнения по дням
+    cur.execute(
+        """SELECT d::date, (
+             SELECT COUNT(*) FROM lesson_students ls JOIN lessons l ON l.id = ls.lesson_id
+             WHERE ls.student_id = %s AND l.lesson_date = d::date
+           ) + (
+             SELECT COUNT(*) FROM homework h
+             WHERE h.student_id = %s AND h.updated_at::date = d::date AND h.status IN ('review','done')
+           ) + (
+             SELECT COUNT(*) FROM exercise_results er
+             WHERE er.student_id = %s AND er.created_at::date = d::date
+           )
+           FROM generate_series(CURRENT_DATE - 27, CURRENT_DATE, '1 day') d
+           ORDER BY d""",
+        (user_id, user_id, user_id)
+    )
+    activity = [{"date": str(r[0]), "count": int(r[1])} for r in cur.fetchall()]
+
+    # Серия: сколько дней подряд с активностью, считая от сегодня
+    streak = 0
+    for item in reversed(activity):
+        if item["count"] > 0:
+            streak += 1
+        elif item["date"] != str(datetime.now().date()):
+            break
+
+    cur.execute(
+        """SELECT INITCAP(LOWER(COALESCE(NULLIF(TRIM(subject), ''), 'Без темы'))) AS s,
+                  ROUND(AVG(grade) * 20), COUNT(*)
+           FROM homework
+           WHERE student_id = %s AND grade IS NOT NULL
+           GROUP BY s ORDER BY COUNT(*) DESC, s LIMIT 6""",
+        (user_id,)
+    )
+    by_topic = [{"topic": r[0], "score": int(r[1] or 0), "count": int(r[2])} for r in cur.fetchall()]
+
+    cur.execute("SELECT COALESCE(level, 'A1'), teacher_id FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+    level = row[0] if row else "A1"
+    my_teacher = row[1] if row else None
+
+    # Рейтинг соучеников того же преподавателя — по числу занятий и среднему баллу
+    cur.execute(
+        """SELECT u.id, u.name, COALESCE(u.level, 'A1'), COALESCE(u.avatar, ''),
+                  (SELECT COUNT(*) FROM lesson_students ls JOIN lessons l ON l.id = ls.lesson_id
+                   WHERE ls.student_id = u.id AND (l.lesson_date + l.lesson_time) <= NOW()),
+                  COALESCE((SELECT AVG(grade) FROM homework WHERE student_id = u.id AND grade IS NOT NULL), 0)
+           FROM users u
+           WHERE u.role = 'student' AND COALESCE(u.is_blocked, FALSE) = FALSE
+             AND (%s IS NULL OR u.teacher_id = %s OR u.id = %s)""",
+        (my_teacher, my_teacher, user_id)
+    )
+    board = []
+    for r in cur.fetchall():
+        lessons_n, grade = int(r[4] or 0), float(r[5] or 0)
+        board.append({
+            "id": r[0], "name": r[1], "level": r[2], "avatar": r[3],
+            "lessons": lessons_n, "grade": round(grade, 1),
+            "score": lessons_n * 5 + round(grade * 10),
+            "is_me": r[0] == user_id,
+        })
+    board.sort(key=lambda x: -x["score"])
+    board = board[:10]
+
+    cur.close()
+    conn.close()
+
+    avg_grade = round(float(avg_grade or 0), 1)
+    hours = round((minutes or 0) / 60)
+    ex_percent = round(ex_score * 100 / ex_total) if ex_total else 0
+
+    def step(done, goal, unit):
+        """Подсказка: выполнено — сколько всего, нет — сколько осталось."""
+        if done >= goal:
+            return f"Получено · {done} {unit}"
+        return f"Ещё {goal - done} {unit} из {goal}"
+
+    achievements = [
+        {"title": "Первый урок", "icon": "\U0001F393", "earned": lessons_done >= 1,
+         "hint": "Получено" if lessons_done >= 1 else "Побывайте на первом занятии"},
+        {"title": "10 уроков", "icon": "\U0001F4DA", "earned": lessons_done >= 10,
+         "hint": step(lessons_done, 10, "зан.")},
+        {"title": "Серия 7 дней", "icon": "\U0001F525", "earned": streak >= 7,
+         "hint": f"Получено · {streak} дн. подряд" if streak >= 7 else f"Сейчас подряд: {streak} из 7"},
+        {"title": "Отличник", "icon": "\u2B50", "earned": avg_grade >= 4.5 and hw_done >= 3,
+         "hint": f"Средний балл {avg_grade}" if hw_done else "Сдайте работы на оценку"},
+        {"title": "50 уроков", "icon": "\U0001F3C6", "earned": lessons_done >= 50,
+         "hint": step(lessons_done, 50, "зан.")},
+        {"title": "Разговорник", "icon": "\U0001F4AC", "earned": ex_count >= 10,
+         "hint": step(ex_count, 10, "упр.")},
+    ]
+
+    return resp(200, {
+        "lessons_done": int(lessons_done or 0),
+        "hours": hours,
+        "avg_grade": avg_grade,
+        "hw_total": int(hw_total or 0),
+        "hw_done": int(hw_done or 0),
+        "exercises": int(ex_count or 0),
+        "ex_percent": ex_percent,
+        "streak": streak,
+        "level": level,
+        "activity": activity,
+        "by_topic": by_topic,
+        "leaderboard": board,
+        "achievements": achievements,
+    })

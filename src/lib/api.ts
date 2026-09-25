@@ -196,6 +196,22 @@ export async function apiUpdateHomework(data: UpdateHomeworkData) {
   return r.data as { ok?: boolean; error?: string };
 }
 
+export interface ProfileStats {
+  lessons_done: number; hours: number; avg_grade: number;
+  hw_total: number; hw_done: number; exercises: number; ex_percent: number;
+  streak: number; level: string;
+  activity: { date: string; count: number }[];
+  by_topic: { topic: string; score: number; count: number }[];
+  leaderboard: { id: number; name: string; level: string; avatar: string;
+    lessons: number; grade: number; score: number; is_me: boolean }[];
+  achievements: { title: string; icon: string; earned: boolean; hint: string }[];
+}
+
+export async function apiGetProfileStats() {
+  const r = await request(API_URL + "?p=profile_stats");
+  return r.data as ProfileStats & { error?: string };
+}
+
 export async function apiGetStudents() {
   const r = await request(API_URL + "?p=students");
   return r.data as { students?: StudentInfo[]; error?: string };
