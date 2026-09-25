@@ -32,7 +32,7 @@ export async function apiLogin(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ action: "login", email, password }),
   });
-  return r.data as { token?: string; user?: ApiUser; twofa?: boolean; user_id?: number; hint?: string; need_verify?: boolean; blocked?: boolean; email?: string; error?: string };
+  return r.data as { token?: string; user?: ApiUser; twofa?: boolean; user_id?: number; hint?: string; need_verify?: boolean; blocked?: boolean; email?: string; need_teacher?: boolean; error?: string };
 }
 
 export async function apiVerifyCode(user_id: number, code: string) {
@@ -40,7 +40,7 @@ export async function apiVerifyCode(user_id: number, code: string) {
     method: "POST",
     body: JSON.stringify({ action: "verify_code", user_id, code }),
   });
-  return r.data as { token?: string; user?: ApiUser; error?: string };
+  return r.data as { token?: string; user?: ApiUser; need_teacher?: boolean; error?: string };
 }
 
 export async function apiResendCode(user_id: number) {
@@ -53,7 +53,7 @@ export async function apiResendCode(user_id: number) {
 
 export async function apiVerifyEmail(token: string) {
   const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "verify_email", token }) });
-  return r.data as { token?: string; user?: ApiUser; expired?: boolean; error?: string };
+  return r.data as { token?: string; user?: ApiUser; expired?: boolean; need_teacher?: boolean; error?: string };
 }
 
 export async function apiResendVerify(email: string) {
@@ -81,7 +81,28 @@ export async function apiRegister(name: string, email: string, password: string,
 
 export async function apiMe() {
   const r = await request(AUTH_URL);
-  return r.data as { user?: ApiUser; error?: string };
+  return r.data as { user?: ApiUser; need_teacher?: boolean; error?: string };
+}
+
+export interface TeacherChoice {
+  id: number;
+  name: string;
+  avatar: string;
+  about: string;
+  languages: string[];
+}
+
+export async function apiTeachersList() {
+  const r = await request(AUTH_URL + "?p=teachers");
+  return r.data as { teachers?: TeacherChoice[]; error?: string };
+}
+
+export async function apiPickTeacher(teacher_id: number) {
+  const r = await request(AUTH_URL, {
+    method: "POST",
+    body: JSON.stringify({ action: "pick_teacher", teacher_id }),
+  });
+  return r.data as { ok?: boolean; error?: string };
 }
 
 export async function apiLogout() {

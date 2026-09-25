@@ -13,6 +13,7 @@ import ChatPage from "./pages/ChatPage";
 import LessonRoomPage from "./pages/LessonRoomPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage, { type User } from "./pages/LoginPage";
+import TeacherPicker from "@/components/TeacherPicker";
 import Sidebar from "./components/Sidebar";
 import HelpDialog from "./components/HelpDialog";
 import { TimezoneProvider } from "./hooks/useTimezone";
@@ -85,6 +86,7 @@ const initialPage = (): Page => {
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activePage, setActivePage] = useState<Page>(initialPage);
+  const [needTeacher, setNeedTeacher] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpNew, setHelpNew] = useState(0);
@@ -152,6 +154,7 @@ export default function App() {
       if (res.user) {
         const u: User = { id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar };
         setUser(u);
+        setNeedTeacher(!!res.need_teacher);
         localStorage.setItem("hispania_user", JSON.stringify(u));
       } else if (res.error) {
         localStorage.removeItem("hispania_token");
@@ -204,9 +207,10 @@ export default function App() {
     };
   }, [activePage, user]);
 
-  const handleLogin = (u: User) => {
+  const handleLogin = (u: User, needsTeacher?: boolean) => {
     localStorage.setItem("hispania_user", JSON.stringify(u));
     setUser(u);
+    setNeedTeacher(!!needsTeacher);
     if (lessonRoom) { setActivePage("lesson"); return; }
 
     const params = new URLSearchParams(window.location.search);
@@ -250,6 +254,15 @@ export default function App() {
     return (
       <TooltipProvider>
         <LoginPage onLogin={handleLogin} />
+      </TooltipProvider>
+    );
+  }
+
+  // Ученик без преподавателя выбирает его один раз
+  if (needTeacher && user.role === "student") {
+    return (
+      <TooltipProvider>
+        <TeacherPicker userName={user.name} onDone={() => setNeedTeacher(false)} />
       </TooltipProvider>
     );
   }

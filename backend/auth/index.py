@@ -67,6 +67,8 @@ def handler(event: dict, context) -> dict:
         return admin_delete_user(event)
     if method == "POST" and action == "admin_update_user":
         return admin_update_user(event)
+    if method == "POST" and action == "pick_teacher":
+        return pick_teacher(event)
     if method == "GET":
         params = event.get("queryStringParameters") or {}
         if params.get("p") == "reset_list":
@@ -75,6 +77,8 @@ def handler(event: dict, context) -> dict:
             return admin_people(event)
         if params.get("p") == "public":
             return public_settings(event)
+        if params.get("p") == "teachers":
+            return teachers_list(event)
         return me(event)
 
     return {"statusCode": 404, "headers": CORS, "body": json.dumps({"error": "Not found"})}
@@ -182,11 +186,8 @@ def register(event):
         cur.close(); conn.close()
         return {"statusCode": 409, "headers": CORS, "body": json.dumps({"error": "Пользователь с таким email уже существует"})}
 
+    # Преподавателя ученик выбирает сам сразу после регистрации
     teacher_id = None
-    if role == "student":
-        cur.execute("SELECT id FROM users WHERE role='teacher' ORDER BY id LIMIT 1")
-        trow = cur.fetchone()
-        teacher_id = trow[0] if trow else None
 
     vtoken = secrets.token_hex(24)
     cur.execute(
@@ -402,7 +403,7 @@ def me(event):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT u.id, u.name, u.role, u.level, u.avatar
+        """SELECT u.id, u.name, u.role, u.level, u.avatar, u.teacher_id
            FROM sessions s JOIN users u ON u.id=s.user_id
            WHERE s.token=%s AND s.expires_at > NOW() AND COALESCE(u.is_blocked, FALSE) = FALSE""",
         (token,)
@@ -413,11 +414,14 @@ def me(event):
     if not row:
         return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Сессия истекла"})}
 
-    user_id, name, role, level, avatar = row
+    user_id, name, role, level, avatar, teacher_id = row
     return {
         "statusCode": 200,
         "headers": CORS,
-        "body": json.dumps({"user": {"id": user_id, "name": name, "role": role, "level": level, "avatar": avatar}})
+        "body": json.dumps({
+            "need_teacher": role == "student" and teacher_id is None,
+            "user": {"id": user_id, "name": name, "role": role, "level": level, "avatar": avatar}
+        })
     }
 
 
@@ -446,6 +450,12 @@ def issue_session(conn, cur, user_id, name, role, level, avatar):
     token = secrets.token_hex(32)
     expires = datetime.now() + timedelta(days=30)
     cur.execute("INSERT INTO sessions (user_id, token, expires_at) VALUES (%s,%s,%s)", (user_id, token, expires))
+    # Ученику без преподавателя предложим выбрать — один раз
+    need_teacher = False
+    if role == "student":
+        cur.execute("SELECT teacher_id FROM users WHERE id=%s", (user_id,))
+        trow = cur.fetchone()
+        need_teacher = bool(trow) and trow[0] is None
     conn.commit()
     cur.close(); conn.close()
     return {
@@ -453,6 +463,7 @@ def issue_session(conn, cur, user_id, name, role, level, avatar):
         "headers": CORS,
         "body": json.dumps({
             "token": token,
+            "need_teacher": need_teacher,
             "user": {"id": user_id, "name": name, "role": role, "level": level, "avatar": avatar}
         })
     }
@@ -1006,3 +1017,63 @@ def admin_block_user(event):
     conn.commit(); cur.close(); conn.close()
     return {"statusCode": 200, "headers": CORS,
             "body": json.dumps({"ok": True, "name": row[1], "is_blocked": block})}
+
+
+def teachers_list(event):
+    """Преподаватели школы — ученик выбирает одного при первом входе."""
+    user_id, role = get_authed_user(event)
+    if not user_id:
+        return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Не авторизован"})}
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """SELECT id, name, COALESCE(avatar,''), COALESCE(about,''), COALESCE(languages,'')
+           FROM users
+           WHERE role='teacher' AND COALESCE(is_blocked, FALSE) = FALSE
+           ORDER BY name"""
+    )
+    rows = cur.fetchall()
+    cur.close(); conn.close()
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"teachers": [
+        {"id": r[0], "name": r[1], "avatar": r[2], "about": r[3],
+         "languages": [x for x in r[4].split(",") if x]} for r in rows
+    ]}, ensure_ascii=False)}
+
+
+def pick_teacher(event):
+    """Ученик выбирает преподавателя. Меняется только пока педагог не назначен."""
+    user_id, role = get_authed_user(event)
+    if not user_id or role != "student":
+        return {"statusCode": 403, "headers": CORS, "body": json.dumps({"error": "Нет доступа"})}
+    body = json.loads(event.get("body") or "{}")
+    teacher_id = body.get("teacher_id")
+    if not teacher_id:
+        return {"statusCode": 400, "headers": CORS,
+                "body": json.dumps({"error": "Выберите преподавателя"}, ensure_ascii=False)}
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM users WHERE id=%s AND role='teacher' AND COALESCE(is_blocked, FALSE)=FALSE",
+                (int(teacher_id),))
+    if not cur.fetchone():
+        cur.close(); conn.close()
+        return {"statusCode": 404, "headers": CORS,
+                "body": json.dumps({"error": "Преподаватель не найден"}, ensure_ascii=False)}
+
+    # Выбор делается один раз: если педагог уже есть, менять может только администратор
+    cur.execute(
+        "UPDATE users SET teacher_id=%s WHERE id=%s AND teacher_id IS NULL RETURNING id",
+        (int(teacher_id), user_id)
+    )
+    changed = cur.fetchone()
+    if not changed:
+        cur.close(); conn.close()
+        return {"statusCode": 409, "headers": CORS,
+                "body": json.dumps({"error": "Преподаватель уже назначен"}, ensure_ascii=False)}
+
+    cur.execute("SELECT name FROM users WHERE id=%s", (user_id,))
+    sname = cur.fetchone()[0]
+    cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'system')",
+                (int(teacher_id), f"Новый ученик: {sname}"))
+    conn.commit(); cur.close(); conn.close()
+    return {"statusCode": 200, "headers": CORS, "body": json.dumps({"ok": True})}

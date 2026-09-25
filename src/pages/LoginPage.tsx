@@ -15,7 +15,7 @@ export interface User {
 }
 
 interface LoginPageProps {
-  onLogin: (user: User) => void;
+  onLogin: (user: User, needTeacher?: boolean) => void;
 }
 
 const DEMO = {
@@ -82,7 +82,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       .then(res => {
         if (res.token && res.user) {
           localStorage.setItem("hispania_token", res.token);
-          onLogin({ id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar });
+          onLogin({ id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar }, res.need_teacher);
           return;
         }
         setCheckingLink(false);
@@ -122,7 +122,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         return;
       }
       localStorage.setItem("hispania_token", res.token);
-      onLogin({ id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar });
+      onLogin({ id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar }, res.need_teacher);
     } catch {
       setError("Ошибка соединения. Попробуйте ещё раз.");
       setLoading(false);
@@ -180,7 +180,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         return;
       }
       localStorage.setItem("hispania_token", res.token);
-      onLogin({ id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar });
+      onLogin({ id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar }, res.need_teacher);
     } catch {
       setError("Ошибка соединения. Попробуйте ещё раз.");
       setLoading(false);
