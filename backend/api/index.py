@@ -995,19 +995,32 @@ def get_chat_contacts(conn, user_id, role):
         cur.execute(f"""SELECT id, name, avatar, COALESCE(level,''), {online}
                         FROM users WHERE role='student' ORDER BY name""")
     elif role == "teacher":
-        # Преподаватель переписывается только со своими учениками
-        cur.execute(f"""SELECT id, name, avatar, COALESCE(level,''), {online}
-                        FROM users WHERE role='student' AND teacher_id=%s ORDER BY name""",
-                    (user_id,))
-    else:
-        # Ученик пишет своему преподавателю. Если педагог ещё не назначен — всем
+        # Свои ученики плюс те, с кем уже была переписка
         cur.execute(f"""SELECT id, name, avatar, COALESCE(level,''), {online}
                         FROM users
-                        WHERE role='teacher' AND (
-                              id = (SELECT teacher_id FROM users WHERE id=%s)
-                           OR (SELECT teacher_id FROM users WHERE id=%s) IS NULL)
+                        WHERE (role='student' AND teacher_id=%s)
+                           OR id IN (
+                                  SELECT CASE WHEN from_user_id=%s THEN to_user_id ELSE from_user_id END
+                                  FROM messages
+                                  WHERE (from_user_id=%s OR to_user_id=%s)
+                                    AND COALESCE(removed_for_all,FALSE)=FALSE)
                         ORDER BY name""",
-                    (user_id, user_id))
+                    (user_id, user_id, user_id, user_id))
+    else:
+        # Ученик пишет своему преподавателю. Если педагог ещё не назначен — всем.
+        # Плюс все, с кем уже есть переписка — иначе непрочитанное будет не открыть
+        cur.execute(f"""SELECT id, name, avatar, COALESCE(level,''), {online}
+                        FROM users
+                        WHERE (role='teacher' AND (
+                                  id = (SELECT teacher_id FROM users WHERE id=%s)
+                               OR (SELECT teacher_id FROM users WHERE id=%s) IS NULL))
+                           OR id IN (
+                                  SELECT CASE WHEN from_user_id=%s THEN to_user_id ELSE from_user_id END
+                                  FROM messages
+                                  WHERE (from_user_id=%s OR to_user_id=%s)
+                                    AND COALESCE(removed_for_all,FALSE)=FALSE)
+                        ORDER BY name""",
+                    (user_id, user_id, user_id, user_id, user_id))
     people = [{"id": r[0], "name": r[1], "avatar": r[2], "level": r[3], "online": bool(r[4]),
                "last_text": "", "last_at": None, "unread": 0} for r in cur.fetchall()]
 
