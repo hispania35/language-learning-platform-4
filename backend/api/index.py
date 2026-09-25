@@ -68,6 +68,28 @@ def _json_time(o):
 def resp(status, data):
     return {"statusCode": status, "headers": CORS, "body": json.dumps(data, default=_json_time)}
 
+def own_students(cur, user_id, role, student_ids=None):
+    """Оставляет только учеников этого преподавателя. Админу доступны все."""
+    if student_ids is None:
+        if role == "admin":
+            cur.execute("SELECT id FROM users WHERE role='student'")
+        else:
+            cur.execute("SELECT id FROM users WHERE role='student' AND teacher_id=%s", (user_id,))
+        return [r[0] for r in cur.fetchall()]
+
+    ids = [int(s) for s in student_ids]
+    if not ids:
+        return []
+    if role == "admin":
+        cur.execute("SELECT id FROM users WHERE role='student' AND id = ANY(%s)", (ids,))
+    else:
+        cur.execute(
+            "SELECT id FROM users WHERE role='student' AND id = ANY(%s) AND teacher_id=%s",
+            (ids, user_id),
+        )
+    return [r[0] for r in cur.fetchall()]
+
+
 def notify_many(cur, pairs, ntype):
     """Одним запросом создать уведомления: pairs = [(user_id, text), ...]"""
     pairs = list(pairs)
@@ -262,9 +284,9 @@ def handler(event: dict, context) -> dict:
         # --- Students list ---
         if path == "students":
             if method == "GET":
-                return get_students(conn)
+                return get_students(conn, user_id, role)
             if method == "PUT":
-                return update_student(event, conn, role)
+                return update_student(event, conn, user_id, role)
 
         # --- Groups ---
         if path == "groups":
@@ -432,6 +454,7 @@ def assign_material(event, conn, user_id, role):
     if group_id:
         cur.execute("SELECT student_id FROM group_members WHERE group_id=%s", (int(group_id),))
         student_ids = sorted(set(student_ids) | {r[0] for r in cur.fetchall()})
+    student_ids = own_students(cur, user_id, role, student_ids)
 
     cur.execute("DELETE FROM material_assignments WHERE material_id=%s", (mid,))
     if student_ids:
@@ -546,8 +569,7 @@ def create_material(event, conn, user_id, role):
          "external" if key else None)
     )
     mat_id = cur.fetchone()[0]
-    cur.execute("SELECT id FROM users WHERE role='student'")
-    notify_many(cur, [(r[0], f"Новый материал: {title}") for r in cur.fetchall()], "material")
+    notify_many(cur, [(sid, f"Новый материал: {title}") for sid in own_students(cur, user_id, role)], "material")
     conn.commit(); cur.close(); conn.close()
     return resp(200, {"ok": True, "id": mat_id})
 
@@ -627,12 +649,7 @@ def create_lesson(event, conn, user_id, role):
             student_ids.append(int(s))
         except (TypeError, ValueError):
             pass
-    if student_ids:
-        id_list = ",".join(str(i) for i in student_ids)
-        cur.execute(f"SELECT id FROM users WHERE role='student' AND id IN ({id_list})")
-    else:
-        cur.execute("SELECT id FROM users WHERE role='student'")
-    sids = [r[0] for r in cur.fetchall()]
+    sids = own_students(cur, user_id, role, student_ids if student_ids else None)
     added = len(sids)
     link_students(cur, lesson_id, sids)
     notify_many(cur, [(sid, f"Новое занятие {lesson_date} {lesson_time}: {topic}") for sid in sids], "calendar")
@@ -973,14 +990,24 @@ def _send_unread_digests(cur):
 def get_chat_contacts(conn, user_id, role):
     """Список собеседников с последним сообщением и счётчиком непрочитанного."""
     cur = conn.cursor()
-    if role in ("teacher", "admin"):
-        cur.execute(f"""SELECT id, name, avatar, COALESCE(level,''),
-                        (last_seen IS NOT NULL AND last_seen > NOW() - INTERVAL '{ONLINE_SEC} seconds')
+    online = f"(last_seen IS NOT NULL AND last_seen > NOW() - INTERVAL '{ONLINE_SEC} seconds')"
+    if role == "admin":
+        cur.execute(f"""SELECT id, name, avatar, COALESCE(level,''), {online}
                         FROM users WHERE role='student' ORDER BY name""")
+    elif role == "teacher":
+        # Преподаватель переписывается только со своими учениками
+        cur.execute(f"""SELECT id, name, avatar, COALESCE(level,''), {online}
+                        FROM users WHERE role='student' AND teacher_id=%s ORDER BY name""",
+                    (user_id,))
     else:
-        cur.execute(f"""SELECT id, name, avatar, COALESCE(level,''),
-                        (last_seen IS NOT NULL AND last_seen > NOW() - INTERVAL '{ONLINE_SEC} seconds')
-                        FROM users WHERE role='teacher' ORDER BY name""")
+        # Ученик пишет своему преподавателю. Если педагог ещё не назначен — всем
+        cur.execute(f"""SELECT id, name, avatar, COALESCE(level,''), {online}
+                        FROM users
+                        WHERE role='teacher' AND (
+                              id = (SELECT teacher_id FROM users WHERE id=%s)
+                           OR (SELECT teacher_id FROM users WHERE id=%s) IS NULL)
+                        ORDER BY name""",
+                    (user_id, user_id))
     people = [{"id": r[0], "name": r[1], "avatar": r[2], "level": r[3], "online": bool(r[4]),
                "last_text": "", "last_at": None, "unread": 0} for r in cur.fetchall()]
 
@@ -1697,15 +1724,20 @@ def send_reminders(conn):
     send_bulk(letters)
     return resp(200, {"ok": True, "sent": len(result), "details": result})
 
-def get_students(conn):
+def get_students(conn, user_id=None, role=None):
+    """Преподаватель видит только своих учеников, администратор — всех."""
     cur = conn.cursor()
+    own_only = role == "teacher"
     cur.execute(
         """SELECT u.id, u.name, u.avatar, u.level, u.email,
                   COALESCE(u.phone,''), COALESCE(u.social_name,''),
                   COALESCE(u.social_url,''), COALESCE(u.note,''),
                   (SELECT COUNT(*) FROM lesson_students ls WHERE ls.student_id=u.id) as lessons_count,
                   COALESCE(u.timezone,'Europe/Moscow'), COALESCE(u.languages,'es')
-           FROM users u WHERE u.role='student' ORDER BY u.name"""
+           FROM users u
+           WHERE u.role='student' AND (%s = FALSE OR u.teacher_id = %s)
+           ORDER BY u.name""",
+        (own_only, user_id)
     )
     rows = cur.fetchall()
     cur.close(); conn.close()
@@ -1716,12 +1748,20 @@ def get_students(conn):
          "languages": [x for x in r[11].split(",") if x]} for r in rows
     ]})
 
-def update_student(event, conn, role):
+def update_student(event, conn, user_id, role):
     if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
     body = json.loads(event.get("body") or "{}")
     student_id = body.get("id")
+    if student_id and role == "teacher":
+        chk = conn.cursor()
+        chk.execute("SELECT 1 FROM users WHERE id=%s AND teacher_id=%s", (int(student_id), user_id))
+        mine = chk.fetchone()
+        chk.close()
+        if not mine:
+            conn.close()
+            return resp(403, {"error": "Это не ваш ученик"})
     email = (body.get("email") or "").strip()
     if not student_id:
         conn.close()
@@ -1816,7 +1856,7 @@ def create_group(event, conn, user_id, role):
         (user_id, name, (body.get("description") or "").strip(), body.get("color") or "primary")
     )
     group_id = cur.fetchone()[0]
-    add_members(cur, group_id, _group_ids(body.get("student_ids")))
+    add_members(cur, group_id, own_students(cur, user_id, role, _group_ids(body.get("student_ids"))))
     conn.commit(); cur.close(); conn.close()
     return resp(200, {"ok": True, "id": group_id})
 
@@ -1840,7 +1880,7 @@ def update_group(event, conn, user_id, role):
         cur.close(); conn.close()
         return resp(404, {"error": "Группа не найдена"})
     if body.get("student_ids") is not None:
-        new_ids = set(_group_ids(body.get("student_ids")))
+        new_ids = set(own_students(cur, user_id, role, _group_ids(body.get("student_ids"))))
         cur.execute("SELECT student_id FROM group_members WHERE group_id=%s", (group_id,))
         old_ids = set(r[0] for r in cur.fetchall())
         add_members(cur, group_id, new_ids - old_ids)

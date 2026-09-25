@@ -1,0 +1,3 @@
+UPDATE t_p98019776_language_learning_pl.sessions
+SET expires_at = NOW() - INTERVAL '1 day'
+WHERE token = 'checkaccess0000000000000000000000000000000000000000000000000001';

@@ -50,7 +50,7 @@ def handler(event: dict, context) -> dict:
     action = params.get("p", "")
 
     if method == "GET" and action == "students":
-        return get_students(conn)
+        return get_students(conn, user_id, role)
 
     if method == "GET":
         return get_homework(conn, user_id, role)
@@ -109,6 +109,15 @@ def get_homework(conn, user_id, role):
     return {"statusCode": 200, "headers": CORS, "body": json.dumps({"homework": result})}
 
 
+def is_my_student(cur, student_id, user_id, role):
+    """Можно ли этому преподавателю работать с данным учеником."""
+    if role == "admin":
+        return True
+    cur.execute("SELECT 1 FROM users WHERE id=%s AND role='student' AND teacher_id=%s",
+                (int(student_id), user_id))
+    return cur.fetchone() is not None
+
+
 def create_homework(event, conn, user_id, role):
     if role not in ("teacher", "admin"):
         conn.close()
@@ -126,6 +135,9 @@ def create_homework(event, conn, user_id, role):
         return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Укажите название и студента"})}
 
     cur = conn.cursor()
+    if not is_my_student(cur, student_id, user_id, role):
+        cur.close(); conn.close()
+        return {"statusCode": 403, "headers": CORS, "body": json.dumps({"error": "Это не ваш ученик"})}
     cur.execute(
         """INSERT INTO homework (teacher_id, student_id, title, description, subject, due_date, status)
            VALUES (%s, %s, %s, %s, %s, %s, 'pending') RETURNING id""",
@@ -228,6 +240,10 @@ def edit_homework(event, conn, user_id, role):
     new_student = body.get("student_id")
     moved_to = None
     if new_student and int(new_student) != row[1]:
+        if not is_my_student(cur, new_student, user_id, role):
+            cur.close(); conn.close()
+            return {"statusCode": 403, "headers": CORS,
+                    "body": json.dumps({"error": "Это не ваш ученик"}, ensure_ascii=False)}
         fields.append("student_id=%s"); values.append(int(new_student))
         moved_to = int(new_student)
 
@@ -283,9 +299,14 @@ def delete_homework(event, conn, user_id, role):
             "body": json.dumps({"ok": True, "title": row[2]}, ensure_ascii=False)}
 
 
-def get_students(conn):
+def get_students(conn, user_id=None, role=None):
+    """Преподавателю — только его ученики, администратору — все."""
     cur = conn.cursor()
-    cur.execute("SELECT id, name, avatar, level FROM users WHERE role='student' ORDER BY name")
+    if role == "teacher":
+        cur.execute("""SELECT id, name, avatar, level FROM users
+                       WHERE role='student' AND teacher_id=%s ORDER BY name""", (user_id,))
+    else:
+        cur.execute("SELECT id, name, avatar, level FROM users WHERE role='student' ORDER BY name")
     rows = cur.fetchall()
     cur.close(); conn.close()
     students = [{"id": r[0], "name": r[1], "avatar": r[2], "level": r[3]} for r in rows]

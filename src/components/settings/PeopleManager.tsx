@@ -83,11 +83,13 @@ export default function PeopleManager() {
       ? await apiAdminUpdateUser({
           user_id: editing.id, name: v.name.trim(), email: v.email.trim(),
           level: v.level, phone: v.phone, telegram: v.telegram, note: v.note,
+          ...(tab === "students" ? { teacher_id: v.teacher_id ? Number(v.teacher_id) : null } : {}),
         }).catch(() => null)
       : await apiAdminAddUser({
           name: v.name.trim(), email: v.email.trim(), password: v.password.trim(),
           role: tab === "students" ? "student" : "teacher",
           level: v.level, phone: v.phone, telegram: v.telegram, note: v.note,
+          ...(tab === "students" && v.teacher_id ? { teacher_id: Number(v.teacher_id) } : {}),
         }).catch(() => null);
     setBusy(false);
     if (!res?.ok) { setMsg(res?.error || "Не удалось сохранить"); return; }
@@ -188,6 +190,7 @@ export default function PeopleManager() {
             <PersonCardForm
               role={tab === "students" ? "student" : "teacher"}
               person={editing || undefined}
+              teachers={teachers}
               busy={busy}
               onCancel={() => { setAdding(false); setEditing(null); }}
               onSave={savePerson}

@@ -280,10 +280,14 @@ def reset_list(event):
         return {"statusCode": 403, "headers": CORS, "body": json.dumps({"error": "Нет доступа"})}
     conn = get_conn()
     cur = conn.cursor()
+    # Преподаватель видит заявки только своих учеников
     cur.execute(
         """SELECT r.id, u.id as user_id, u.name, u.email, r.status, r.created_at
            FROM password_resets r JOIN users u ON u.id=r.user_id
-           WHERE r.status='pending' ORDER BY r.created_at DESC"""
+           WHERE r.status='pending'
+             AND (%s = 'admin' OR (u.role='student' AND u.teacher_id=%s))
+           ORDER BY r.created_at DESC""",
+        (role, user_id)
     )
     rows = cur.fetchall()
     cur.close(); conn.close()
@@ -305,11 +309,18 @@ def reset_do(event):
         return {"statusCode": 400, "headers": CORS, "body": json.dumps({"error": "Пароль должен быть не менее 6 символов"})}
     conn = get_conn()
     cur = conn.cursor()
+    # Преподаватель может менять пароль только своему ученику
     cur.execute(
-        "UPDATE users SET password_hash=%s WHERE id=%s RETURNING name, email",
-        (new_password, target_user_id)
+        """UPDATE users SET password_hash=%s
+           WHERE id=%s AND (%s = 'admin' OR (role='student' AND teacher_id=%s))
+           RETURNING name, email""",
+        (new_password, target_user_id, role, user_id)
     )
     urow = cur.fetchone()
+    if not urow:
+        cur.close(); conn.close()
+        return {"statusCode": 403, "headers": CORS,
+                "body": json.dumps({"error": "Это не ваш ученик"}, ensure_ascii=False)}
     cur.execute("UPDATE password_resets SET status='done', resolved_at=NOW() WHERE id=%s", (reset_id,))
     cur.execute("DELETE FROM sessions WHERE user_id=%s", (target_user_id,))
     conn.commit(); cur.close(); conn.close()
@@ -617,7 +628,11 @@ def admin_people(event):
                   u.teacher_id,
                   (SELECT COUNT(*) FROM lesson_students ls WHERE ls.student_id=u.id),
                   COALESCE(u.is_blocked, FALSE), COALESCE(u.email_verified, TRUE)
-           FROM users u WHERE u.role IN ('student','teacher') ORDER BY u.role, u.name"""
+           FROM users u
+           WHERE u.role IN ('student','teacher')
+             AND (%s = 'admin' OR u.role='teacher' OR u.teacher_id=%s)
+           ORDER BY u.role, u.name""",
+        (role, user_id)
     )
     rows = cur.fetchall()
     cur.close(); conn.close()

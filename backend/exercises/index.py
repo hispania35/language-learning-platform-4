@@ -224,6 +224,24 @@ def list_exercises(conn, user_id, role):
     return resp(200, {"exercises": out, "ai_ready": gpt_ready()})
 
 
+def own_students(cur, user_id, role, student_ids):
+    """Оставляет только учеников этого преподавателя. Админу доступны все."""
+    ids = []
+    for s in student_ids or []:
+        try:
+            ids.append(int(s))
+        except (TypeError, ValueError):
+            pass
+    if not ids:
+        return []
+    if role == "admin":
+        cur.execute("SELECT id FROM users WHERE role='student' AND id = ANY(%s)", (ids,))
+    else:
+        cur.execute("SELECT id FROM users WHERE role='student' AND id = ANY(%s) AND teacher_id=%s",
+                    (ids, user_id))
+    return [r[0] for r in cur.fetchall()]
+
+
 def create_exercise(event, conn, user_id, role):
     if role not in ("teacher", "admin"):
         conn.close()
@@ -251,7 +269,7 @@ def create_exercise(event, conn, user_id, role):
     )
     ex_id = cur.fetchone()[0]
 
-    student_ids = body.get("student_ids") or []
+    student_ids = own_students(cur, user_id, role, body.get("student_ids"))
     assign_students(cur, ex_id, student_ids, title)
     conn.commit()
     cur.close()
@@ -315,6 +333,7 @@ def assign_exercise(event, conn, user_id, role):
     if not row:
         cur.close(); conn.close()
         return resp(403, {"error": "Нет доступа"})
+    student_ids = own_students(cur, user_id, role, student_ids)
     assign_students(cur, ex_id, student_ids, row[0])
     conn.commit()
     cur.close()

@@ -238,6 +238,24 @@ def list_decks(conn, user_id, role):
     return resp(200, {"decks": decks, "ai_ready": gpt_ready()})
 
 
+def own_students(cur, user_id, role, student_ids):
+    """Оставляет только учеников этого преподавателя. Админу доступны все."""
+    ids = []
+    for s in student_ids or []:
+        try:
+            ids.append(int(s))
+        except (TypeError, ValueError):
+            pass
+    if not ids:
+        return []
+    if role == "admin":
+        cur.execute("SELECT id FROM users WHERE role='student' AND id = ANY(%s)", (ids,))
+    else:
+        cur.execute("SELECT id FROM users WHERE role='student' AND id = ANY(%s) AND teacher_id=%s",
+                    (ids, user_id))
+    return [r[0] for r in cur.fetchall()]
+
+
 def create_deck(event, conn, user_id, role):
     """Создать набор карточек вместе со словами."""
     if role not in ("teacher", "admin"):
@@ -274,7 +292,7 @@ def create_deck(event, conn, user_id, role):
         f"INSERT INTO cards (deck_id, front, back, example, example_ru, position) VALUES {vals}"
     )
 
-    student_ids = [int(s) for s in (body.get("student_ids") or [])]
+    student_ids = own_students(cur, user_id, role, body.get("student_ids"))
     if student_ids:
         av = ",".join(cur.mogrify("(%s,%s)", (deck_id, sid)).decode() for sid in set(student_ids))
         cur.execute(f"INSERT INTO card_deck_assignments (deck_id, student_id) VALUES {av}")
@@ -313,6 +331,7 @@ def assign_deck(event, conn, user_id, role):
     if body.get("group_id"):
         cur.execute("SELECT student_id FROM group_members WHERE group_id=%s", (int(body["group_id"]),))
         student_ids = sorted(set(student_ids) | {r[0] for r in cur.fetchall()})
+    student_ids = own_students(cur, user_id, role, student_ids)
 
     cur.execute("DELETE FROM card_deck_assignments WHERE deck_id=%s", (deck_id,))
     if student_ids:

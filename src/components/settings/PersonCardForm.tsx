@@ -12,17 +12,19 @@ export interface PersonFormValues {
   phone: string;
   telegram: string;
   note: string;
+  teacher_id: string;
 }
 
 interface Props {
   role: "student" | "teacher";
   person?: PersonCard;
+  teachers?: PersonCard[];
   busy?: boolean;
   onCancel: () => void;
   onSave: (values: PersonFormValues) => void;
 }
 
-export default function PersonCardForm({ role, person, busy, onCancel, onSave }: Props) {
+export default function PersonCardForm({ role, person, teachers = [], busy, onCancel, onSave }: Props) {
   const isNew = !person;
   const [v, setV] = useState<PersonFormValues>({
     name: person?.name || "",
@@ -32,6 +34,7 @@ export default function PersonCardForm({ role, person, busy, onCancel, onSave }:
     phone: person?.phone || "",
     telegram: person?.telegram || "",
     note: person?.note || "",
+    teacher_id: person?.teacher_id ? String(person.teacher_id) : "",
   });
   const [err, setErr] = useState("");
 
@@ -84,6 +87,21 @@ export default function PersonCardForm({ role, person, busy, onCancel, onSave }:
                 }`}>{l}</button>
             ))}
           </div>
+        </div>
+      )}
+
+      {role === "student" && teachers.length > 0 && (
+        <div>
+          <p className="text-xs text-muted-foreground font-ibm mb-1.5">Преподаватель</p>
+          <select value={v.teacher_id} onChange={e => set("teacher_id", e.target.value)} className={field}>
+            <option value="">Не назначен</option>
+            {teachers.map(t => (
+              <option key={t.id} value={String(t.id)}>{t.name}</option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground font-ibm mt-1">
+            Ученик появится в кабинете выбранного преподавателя
+          </p>
         </div>
       )}
 

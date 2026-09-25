@@ -143,6 +143,7 @@ export async function apiAdminSetPassword(user_id: number, new_password: string,
 export async function apiAdminAddUser(data: {
   name: string; email: string; password: string; role: "student" | "teacher";
   level?: string; phone?: string; telegram?: string; note?: string; send_email?: boolean;
+  teacher_id?: number | null;
 }) {
   const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_add_user", ...data }) });
   return r.data as { ok?: boolean; id?: number; mail_sent?: boolean; error?: string };
@@ -150,7 +151,7 @@ export async function apiAdminAddUser(data: {
 
 export async function apiAdminUpdateUser(data: {
   user_id: number; name?: string; email?: string; level?: string;
-  phone?: string; telegram?: string; note?: string;
+  phone?: string; telegram?: string; note?: string; teacher_id?: number | null;
 }) {
   const r = await request(AUTH_URL, { method: "POST", body: JSON.stringify({ action: "admin_update_user", ...data }) });
   return r.data as { ok?: boolean; error?: string };
