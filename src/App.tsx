@@ -45,16 +45,16 @@ export default function App() {
 
   const loadHelpCount = () => {
     apiGetSupport()
-      .then(r => setHelpNew(r.new_count || 0))
+      .then(r => setHelpNew(r.unread || 0))
       .catch(() => {});
   };
 
   useEffect(() => {
-    if (user?.role !== "admin") return;
+    if (!user) return;
     loadHelpCount();
     const t = setInterval(loadHelpCount, 60000);
     return () => clearInterval(t);
-  }, [user?.role]);
+  }, [user?.id]);
 
   // Реальная высота видимой области (мобильные браузеры прячут/показывают панели)
   useEffect(() => {
@@ -177,7 +177,7 @@ export default function App() {
           user={user}
           onOpenSettings={() => { setActivePage("settings"); setSidebarOpen(false); }}
           onOpenHelp={() => setHelpOpen(true)}
-          helpBadge={user.role === "admin" ? helpNew : 0}
+          helpBadge={helpNew}
         />
         <div className="flex-1 flex flex-col min-w-0">
           <div className={kbOpen && (activePage === "chat" || activePage === "lesson") ? "hidden md:block" : ""}>
@@ -202,7 +202,7 @@ export default function App() {
       {helpOpen && (
         <HelpDialog
           isAdmin={user.role === "admin"}
-          onClose={() => { setHelpOpen(false); if (user.role === "admin") loadHelpCount(); }}
+          onClose={() => { setHelpOpen(false); loadHelpCount(); }}
         />
       )}
     </ChatAlertsProvider>

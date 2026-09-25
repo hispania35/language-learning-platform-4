@@ -1149,6 +1149,63 @@ TOPICS = {
     "other": "Другое",
 }
 
+
+def get_support(conn, user_id, role):
+    """Обращения с перепиской. Админ видит все, остальные — свои."""
+    cur = conn.cursor()
+    is_staff = role == "admin"
+    if is_staff:
+        cur.execute(
+            """SELECT t.id, t.topic, t.status, t.created_at, t.last_at,
+                      u.name, u.email, u.role, t.unread_staff, t.unread_user
+               FROM support_tickets t JOIN users u ON u.id=t.user_id
+               WHERE EXISTS (SELECT 1 FROM support_messages m WHERE m.ticket_id=t.id)
+               ORDER BY (t.unread_staff > 0) DESC, COALESCE(t.last_at, t.created_at) DESC LIMIT 100"""
+        )
+    else:
+        cur.execute(
+            """SELECT t.id, t.topic, t.status, t.created_at, t.last_at,
+                      u.name, u.email, u.role, t.unread_staff, t.unread_user
+               FROM support_tickets t JOIN users u ON u.id=t.user_id
+               WHERE t.user_id=%s
+                 AND EXISTS (SELECT 1 FROM support_messages m WHERE m.ticket_id=t.id)
+               ORDER BY COALESCE(t.last_at, t.created_at) DESC LIMIT 50""",
+            (user_id,)
+        )
+    rows = cur.fetchall()
+    tickets = [{
+        "id": r[0], "topic": r[1], "topic_label": TOPICS.get(r[1], "Другое"),
+        "status": r[2],
+        "created_at": r[3].isoformat() if r[3] else None,
+        "last_at": (r[4] or r[3]).isoformat() if (r[4] or r[3]) else None,
+        "user_name": r[5], "user_email": r[6], "user_role": r[7],
+        "unread": r[8] if is_staff else r[9],
+        "messages": [],
+    } for r in rows]
+
+    if tickets:
+        by_id = {t["id"]: t for t in tickets}
+        ids = ",".join(str(i) for i in by_id)
+        cur.execute(
+            f"""SELECT m.ticket_id, m.is_staff, m.text, m.file_url, m.file_name,
+                       m.file_type, m.created_at, u.name
+                FROM support_messages m JOIN users u ON u.id=m.user_id
+                WHERE m.ticket_id IN ({ids}) ORDER BY m.created_at"""
+        )
+        for r in cur.fetchall():
+            by_id[r[0]]["messages"].append({
+                "is_staff": bool(r[1]), "text": r[2],
+                "file_url": r[3], "file_name": r[4], "file_type": r[5],
+                "created_at": r[6].isoformat() if r[6] else None,
+                "author": "Поддержка" if r[1] else r[7],
+            })
+
+    cur.close(); conn.close()
+    total_unread = sum(t["unread"] for t in tickets)
+    new_count = len([t for t in tickets if t["unread"] > 0])
+    return resp(200, {"tickets": tickets, "new_count": new_count, "unread": total_unread})
+
+
 def _store_support_file(body):
     """Скриншот или файл к обращению — в S3, возвращаем ссылку."""
     import base64, uuid, boto3
@@ -1168,173 +1225,151 @@ def _store_support_file(body):
     return url, name, ftype
 
 
-def get_support(conn, user_id, role):
-    """Администратор видит все обращения, остальные — только свои."""
-    cur = conn.cursor()
-    if role == "admin":
-        cur.execute(
-            """SELECT t.id, t.topic, t.message, t.status, t.answer, t.created_at,
-                      u.name, u.email, u.role, t.answered_at,
-                      t.file_url, t.file_name, t.file_type,
-                      t.answer_file_url, t.answer_file_name, t.answer_file_type
-               FROM support_tickets t JOIN users u ON u.id=t.user_id
-               ORDER BY (t.status='new') DESC, t.created_at DESC LIMIT 100"""
-        )
-    else:
-        cur.execute(
-            """SELECT t.id, t.topic, t.message, t.status, t.answer, t.created_at,
-                      u.name, u.email, u.role, t.answered_at,
-                      t.file_url, t.file_name, t.file_type,
-                      t.answer_file_url, t.answer_file_name, t.answer_file_type
-               FROM support_tickets t JOIN users u ON u.id=t.user_id
-               WHERE t.user_id=%s ORDER BY t.created_at DESC LIMIT 50""",
-            (user_id,)
-        )
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    tickets = [{
-        "id": r[0], "topic": r[1], "topic_label": TOPICS.get(r[1], "Другое"),
-        "message": r[2], "status": r[3], "answer": r[4],
-        "created_at": r[5].isoformat() if r[5] else None,
-        "user_name": r[6], "user_email": r[7], "user_role": r[8],
-        "answered_at": r[9].isoformat() if r[9] else None,
-        "file_url": r[10], "file_name": r[11], "file_type": r[12],
-        "answer_file_url": r[13], "answer_file_name": r[14], "answer_file_type": r[15],
-    } for r in rows]
-    new_count = len([t for t in tickets if t["status"] == "new"])
-    return resp(200, {"tickets": tickets, "new_count": new_count})
-
-
 def create_support(event, conn, user_id, user_name, role):
-    """Сообщение администратору из кнопки «Помощь»."""
+    """Новое обращение или сообщение в уже открытое."""
     body = json.loads(event.get("body") or "{}")
     message = (body.get("message") or "").strip()
+    ticket_id = body.get("ticket_id")
     topic = body.get("topic") or "other"
     if topic not in TOPICS:
         topic = "other"
-    file_url = file_name = file_type = ""
+
+    f_url = f_name = f_type = ""
     if body.get("file_data"):
         try:
-            file_url, file_name, file_type = _store_support_file(body)
+            f_url, f_name, f_type = _store_support_file(body)
         except Exception as e:
             conn.close()
             return resp(400, {"error": str(e) or "Не удалось загрузить файл"})
 
-    if len(message) < 5 and not file_url:
+    if len(message) < 2 and not f_url:
         conn.close()
-        return resp(400, {"error": "Опишите вопрос хотя бы парой слов"})
+        return resp(400, {"error": "Напишите сообщение или приложите файл"})
 
     cur = conn.cursor()
+    is_staff = role == "admin"
+
+    if ticket_id:
+        cur.execute("SELECT user_id, topic FROM support_tickets WHERE id=%s", (int(ticket_id),))
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return resp(404, {"error": "Обращение не найдено"})
+        if not is_staff and row[0] != user_id:
+            cur.close(); conn.close()
+            return resp(403, {"error": "Это чужое обращение"})
+        tid = int(ticket_id)
+        author_id = row[0]
+        topic = row[1]
+    else:
+        cur.execute(
+            "INSERT INTO support_tickets (user_id, topic, message, last_at) VALUES (%s,%s,%s,NOW()) RETURNING id",
+            (user_id, topic, message[:4000])
+        )
+        tid = cur.fetchone()[0]
+        author_id = user_id
+
     cur.execute(
-        """INSERT INTO support_tickets (user_id, topic, message, file_url, file_name, file_type)
-           VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (user_id, topic, message[:4000], file_url, file_name[:255], file_type)
+        """INSERT INTO support_messages (ticket_id, user_id, is_staff, text, file_url, file_name, file_type)
+           VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+        (tid, user_id, is_staff, message[:4000], f_url, f_name[:255], f_type)
     )
-    ticket_id = cur.fetchone()[0]
+
+    if is_staff:
+        cur.execute(
+            """UPDATE support_tickets SET last_at=NOW(), status='done',
+                   unread_user=unread_user+1, unread_staff=0 WHERE id=%s""", (tid,))
+    else:
+        cur.execute(
+            """UPDATE support_tickets SET last_at=NOW(), status='new',
+                   unread_staff=unread_staff+1, unread_user=0 WHERE id=%s""", (tid,))
+
+    short = (message[:80] + ("..." if len(message) > 80 else "")) if message else "файл"
+    sent = 0
+    if is_staff:
+        note = f"Ответ поддержки: {short}" if message else "Поддержка прислала файл по вашему вопросу"
+        cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'system')",
+                    (author_id, note))
+        conn.commit()
+        cur2 = conn.cursor()
+        cur2.execute("SELECT name, email FROM users WHERE id=%s", (author_id,))
+        who = cur2.fetchone()
+        cur2.close()
+        cur.close(); conn.close()
+        if who and who[1]:
+            blocks = [f"{who[0]}, здравствуйте!"]
+            if message:
+                blocks += ["Ответ службы поддержки:",
+                           f'<span style="display:block;padding:12px;background:#fef2f2;border-radius:8px">{message[:1500]}</span>']
+            if f_url:
+                blocks.append(
+                    f'<a href="{f_url}"><img src="{f_url}" alt="{f_name}" style="max-width:100%;border-radius:8px;border:1px solid #e5e7eb"></a>'
+                    if f_type == "image" else
+                    f'<a href="{f_url}" style="color:#b91c1c;font-weight:bold">Файл: {f_name}</a>')
+            blocks.append("Ответить можно в платформе — кнопка «Помощь» в меню.")
+            if send_email(who[1], "Ответ на ваш вопрос — Hispania 35",
+                          _wrap("Ответ службы поддержки", blocks), message[:500] or "Поддержка прислала файл"):
+                sent = 1
+        return resp(200, {"ok": True, "id": tid, "mail_sent": sent > 0, "file_url": f_url})
 
     cur.execute("SELECT id, COALESCE(twofa_email,'') FROM users WHERE role='admin'")
     admins = cur.fetchall()
-    who = "Преподаватель" if role in ("teacher", "admin") else "Ученик"
-    short = message[:80] + ("..." if len(message) > 80 else "")
+    kind = "Новый вопрос" if not ticket_id else "Уточнение по обращению"
     if admins:
         values = ",".join(
-            cur.mogrify("(%s,%s,'system')", (a[0], f"Вопрос в поддержку от {user_name}: {short}")).decode()
-            for a in admins
-        )
+            cur.mogrify("(%s,%s,'system')", (a[0], f"{kind} от {user_name}: {short}")).decode()
+            for a in admins)
         cur.execute(f"INSERT INTO notifications (user_id, text, type) VALUES {values}")
-
     conn.commit()
     cur.close(); conn.close()
 
-    sent = 0
-    html = _wrap(
-        "Новое обращение в поддержку",
-        [
-            f"{who} <b>{user_name}</b> задал вопрос через кнопку «Помощь».",
-            f"Тема: <b>{TOPICS.get(topic)}</b>",
-            f'<span style="display:block;padding:12px;background:#f3f4f6;border-radius:8px">{message[:1500] or "(без текста)"}</span>',
-        ] + ([
-            f'<a href="{file_url}" style="color:#b91c1c;font-weight:bold">Вложение: {file_name}</a>'
-        ] if file_url else []),
-    )
+    who_label = "Преподаватель" if role in ("teacher", "admin") else "Ученик"
+    blocks = [
+        f"{who_label} <b>{user_name}</b>: {kind.lower()}.",
+        f"Тема: <b>{TOPICS.get(topic)}</b>",
+        f'<span style="display:block;padding:12px;background:#f3f4f6;border-radius:8px">{message[:1500] or "(без текста)"}</span>',
+    ]
+    if f_url:
+        blocks.append(f'<a href="{f_url}" style="color:#b91c1c;font-weight:bold">Вложение: {f_name}</a>')
+    html = _wrap(kind, blocks)
     for a in admins:
-        if a[1]:
-            if send_email(a[1], f"Помощь: {TOPICS.get(topic)} — {user_name}", html, message[:500]):
-                sent += 1
+        if a[1] and send_email(a[1], f"Помощь: {TOPICS.get(topic)} — {user_name}", html, message[:500]):
+            sent += 1
 
-    return resp(200, {"ok": True, "id": ticket_id, "mail_sent": sent > 0, "file_url": file_url})
+    return resp(200, {"ok": True, "id": tid, "mail_sent": sent > 0, "file_url": f_url})
 
 
 def answer_support(event, conn, user_id, role):
-    """Администратор отвечает на обращение."""
-    if role != "admin":
-        conn.close()
-        return resp(403, {"error": "Только администратор"})
+    """Отметить обращение прочитанным или закрыть его."""
     body = json.loads(event.get("body") or "{}")
     ticket_id = body.get("id")
-    answer = (body.get("answer") or "").strip()
-    close_only = bool(body.get("close"))
     if not ticket_id:
         conn.close()
         return resp(400, {"error": "Не указано обращение"})
-    a_url = a_name = a_type = ""
-    if body.get("file_data"):
-        try:
-            a_url, a_name, a_type = _store_support_file(body)
-        except Exception as e:
-            conn.close()
-            return resp(400, {"error": str(e) or "Не удалось загрузить файл"})
-
-    if not answer and not close_only and not a_url:
-        conn.close()
-        return resp(400, {"error": "Напишите ответ"})
 
     cur = conn.cursor()
-    cur.execute(
-        """SELECT t.user_id, u.name, u.email, t.message
-           FROM support_tickets t JOIN users u ON u.id=t.user_id WHERE t.id=%s""",
-        (int(ticket_id),)
-    )
+    cur.execute("SELECT user_id FROM support_tickets WHERE id=%s", (int(ticket_id),))
     row = cur.fetchone()
     if not row:
         cur.close(); conn.close()
         return resp(404, {"error": "Обращение не найдено"})
+    if role != "admin" and row[0] != user_id:
+        cur.close(); conn.close()
+        return resp(403, {"error": "Это чужое обращение"})
 
-    cur.execute(
-        """UPDATE support_tickets SET answer=%s, status='done', answered_by=%s, answered_at=NOW(),
-               answer_file_url=%s, answer_file_name=%s, answer_file_type=%s
-           WHERE id=%s""",
-        (answer[:4000], user_id, a_url, a_name[:255], a_type, int(ticket_id))
-    )
-    if answer or a_url:
-        note = f"Ответ поддержки: {answer[:80]}" if answer else "Поддержка прислала файл по вашему вопросу"
-        cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'system')",
-                    (row[0], note))
+    if body.get("close"):
+        if role != "admin":
+            cur.close(); conn.close()
+            return resp(403, {"error": "Закрыть обращение может администратор"})
+        cur.execute("UPDATE support_tickets SET status='done', unread_staff=0 WHERE id=%s", (int(ticket_id),))
+    elif role == "admin":
+        cur.execute("UPDATE support_tickets SET unread_staff=0 WHERE id=%s", (int(ticket_id),))
+    else:
+        cur.execute("UPDATE support_tickets SET unread_user=0 WHERE id=%s", (int(ticket_id),))
+
     conn.commit()
     cur.close(); conn.close()
-
-    sent = False
-    if (answer or a_url) and row[2]:
-        blocks = [
-            f"{row[1]}, здравствуйте!",
-            "Ваш вопрос:",
-            f'<span style="display:block;padding:10px;background:#f3f4f6;border-radius:8px;color:#6b7280">{row[3][:600]}</span>',
-        ]
-        if answer:
-            blocks += ["Ответ:",
-                       f'<span style="display:block;padding:12px;background:#fef2f2;border-radius:8px">{answer[:1500]}</span>']
-        if a_url:
-            if a_type == "image":
-                blocks.append(
-                    f'<a href="{a_url}"><img src="{a_url}" alt="{a_name}" '
-                    f'style="max-width:100%;border-radius:8px;border:1px solid #e5e7eb"></a>')
-            else:
-                blocks.append(f'<a href="{a_url}" style="color:#b91c1c;font-weight:bold">Файл: {a_name}</a>')
-        html = _wrap("Ответ службы поддержки", blocks)
-        sent = send_email(row[2], "Ответ на ваш вопрос — Hispania 35",
-                          html, answer[:500] or "Поддержка прислала файл")
-
-    return resp(200, {"ok": True, "mail_sent": sent, "file_url": a_url})
+    return resp(200, {"ok": True})
 
 
 def get_profile(conn, user_id):

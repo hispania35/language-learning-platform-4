@@ -220,51 +220,53 @@ export interface Profile {
   notify_chat?: boolean;
 }
 
+export interface SupportMessage {
+  is_staff: boolean;
+  text: string;
+  file_url?: string;
+  file_name?: string;
+  file_type?: string;
+  created_at: string | null;
+  author: string;
+}
+
 export interface SupportTicket {
   id: number;
   topic: string;
   topic_label: string;
-  message: string;
   status: "new" | "done";
-  answer: string;
   created_at: string | null;
-  answered_at: string | null;
+  last_at: string | null;
   user_name: string;
   user_email: string;
   user_role: string;
-  file_url?: string;
-  file_name?: string;
-  file_type?: string;
-  answer_file_url?: string;
-  answer_file_name?: string;
-  answer_file_type?: string;
+  unread: number;
+  messages: SupportMessage[];
 }
 
 export async function apiGetSupport() {
   const r = await request(API_URL + "?p=support");
-  return r.data as { tickets?: SupportTicket[]; new_count?: number; error?: string };
+  return r.data as { tickets?: SupportTicket[]; new_count?: number; unread?: number; error?: string };
 }
 
-export async function apiSendSupport(
-  topic: string,
-  message: string,
-  file?: { file_data: string; file_name: string; mime: string } | null,
-) {
+export async function apiSendSupport(data: {
+  topic?: string;
+  message: string;
+  ticket_id?: number;
+  file?: { file_data: string; file_name: string; mime: string } | null;
+}) {
+  const { file, ...rest } = data;
   const r = await request(API_URL + "?p=support", {
-    method: "POST", body: JSON.stringify({ topic, message, ...(file || {}) }),
+    method: "POST", body: JSON.stringify({ ...rest, ...(file || {}) }),
   });
   return r.data as { ok?: boolean; id?: number; mail_sent?: boolean; file_url?: string; error?: string };
 }
 
-export async function apiAnswerSupport(
-  id: number,
-  answer: string,
-  file?: { file_data: string; file_name: string; mime: string } | null,
-) {
+export async function apiReadSupport(id: number, close?: boolean) {
   const r = await request(API_URL + "?p=support", {
-    method: "PUT", body: JSON.stringify({ id, answer, ...(file || {}) }),
+    method: "PUT", body: JSON.stringify({ id, close: !!close }),
   });
-  return r.data as { ok?: boolean; mail_sent?: boolean; file_url?: string; error?: string };
+  return r.data as { ok?: boolean; error?: string };
 }
 
 export async function apiGetProfile() {

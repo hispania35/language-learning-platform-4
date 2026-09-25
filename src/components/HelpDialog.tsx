@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import Icon from "@/components/ui/icon";
-import { apiSendSupport, apiGetSupport, apiAnswerSupport, type SupportTicket } from "@/lib/api";
+import { apiSendSupport, apiGetSupport, apiReadSupport, type SupportTicket } from "@/lib/api";
 
 const TOPICS = [
   { id: "tech", label: "Не работает", icon: "TriangleAlert" },
@@ -10,19 +10,55 @@ const TOPICS = [
   { id: "other", label: "Другое", icon: "MessageCircle" },
 ];
 
+interface Attach { data: string; name: string; mime: string; preview: string }
+
 const fmtDate = (s: string | null) => {
   if (!s) return "";
   try {
     return new Date(s).toLocaleDateString("ru-RU", {
-      day: "numeric", month: "long", hour: "2-digit", minute: "2-digit",
+      day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
     });
   } catch { return ""; }
 };
 
-interface Attach { data: string; name: string; mime: string; preview: string }
+function FileBar({ file, onClear, busy }: { file: Attach; onClear: () => void; busy: boolean }) {
+  return (
+    <div className="flex items-center gap-2.5 p-2 rounded-lg border border-border bg-muted/30">
+      {file.preview ? (
+        <img src={file.preview} alt="" className="w-11 h-11 rounded object-cover flex-shrink-0" />
+      ) : (
+        <span className="w-11 h-11 rounded bg-muted flex items-center justify-center flex-shrink-0">
+          <Icon name="FileText" size={16} className="text-muted-foreground" />
+        </span>
+      )}
+      <span className="flex-1 min-w-0 text-xs font-ibm text-foreground truncate">{file.name}</span>
+      <button onClick={onClear} disabled={busy} className="p-1.5 rounded-md hover:bg-muted transition-colors flex-shrink-0">
+        <Icon name="X" size={13} className="text-muted-foreground" />
+      </button>
+    </div>
+  );
+}
+
+function Attachment({ url, name, type }: { url: string; name?: string; type?: string }) {
+  if (type === "image") {
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="block mt-1.5">
+        <img src={url} alt={name} className="max-h-40 rounded-lg border border-border object-contain hover:opacity-90 transition-opacity" />
+      </a>
+    );
+  }
+  return (
+    <a href={url} target="_blank" rel="noreferrer"
+      className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors">
+      <Icon name="Paperclip" size={12} />
+      {name || "Вложение"}
+    </a>
+  );
+}
 
 export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => void }) {
-  const [view, setView] = useState<"write" | "history">(isAdmin ? "history" : "write");
+  const [view, setView] = useState<"write" | "list">(isAdmin ? "list" : "write");
+  const [openId, setOpenId] = useState<number | null>(null);
   const [topic, setTopic] = useState("tech");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,12 +66,12 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
   const [done, setDone] = useState("");
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [loading, setLoading] = useState(true);
-  const [answerFor, setAnswerFor] = useState<number | null>(null);
-  const [answerText, setAnswerText] = useState("");
   const [file, setFile] = useState<Attach | null>(null);
-  const [ansFile, setAnsFile] = useState<Attach | null>(null);
+  const [reply, setReply] = useState("");
+  const [replyFile, setReplyFile] = useState<Attach | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const ansInput = useRef<HTMLInputElement>(null);
+  const replyInput = useRef<HTMLInputElement>(null);
+  const feedEnd = useRef<HTMLDivElement>(null);
 
   const read = (f: File | null | undefined, set: (a: Attach) => void) => {
     if (!f) return;
@@ -52,8 +88,6 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
     reader.readAsDataURL(f);
   };
 
-  const attach = (f: File | null | undefined) => read(f, setFile);
-
   const load = () => {
     apiGetSupport()
       .then(r => { if (r.tickets) setTickets(r.tickets); })
@@ -63,75 +97,118 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
 
   useEffect(() => { load(); }, []);
 
-  const send = async () => {
-    if (text.trim().length < 5 && !file) { setErr("Опишите вопрос хотя бы парой слов"); return; }
+  useEffect(() => {
+    if (openId) feedEnd.current?.scrollIntoView({ behavior: "smooth" });
+  }, [openId, tickets]);
+
+  const openTicket = (t: SupportTicket) => {
+    setOpenId(t.id);
+    setReply(""); setReplyFile(null); setErr("");
+    if (t.unread > 0) apiReadSupport(t.id).then(load).catch(() => {});
+  };
+
+  const sendNew = async () => {
+    if (text.trim().length < 2 && !file) { setErr("Опишите вопрос хотя бы парой слов"); return; }
     setBusy(true); setErr("");
-    const res = await apiSendSupport(
-      topic, text.trim(),
-      file ? { file_data: file.data, file_name: file.name, mime: file.mime } : null,
-    ).catch(() => null);
+    const res = await apiSendSupport({
+      topic, message: text.trim(),
+      file: file ? { file_data: file.data, file_name: file.name, mime: file.mime } : null,
+    }).catch(() => null);
     setBusy(false);
     if (!res?.ok) { setErr(res?.error || "Не удалось отправить"); return; }
-    setDone("Сообщение отправлено администратору. Ответ придёт на вашу почту и в уведомления.");
-    setText("");
-    setFile(null);
-    load();
+    setText(""); setFile(null);
+    setDone("Отправлено администратору. Ответ придёт на почту и сюда.");
+    setTimeout(() => setDone(""), 4000);
+    setView("list");
+    apiGetSupport().then(r => { if (r.tickets) { setTickets(r.tickets); setOpenId(res.id || null); } });
   };
 
-  const reply = async (id: number) => {
-    if (answerText.trim().length < 2 && !ansFile) return;
-    setBusy(true);
-    const res = await apiAnswerSupport(
-      id, answerText.trim(),
-      ansFile ? { file_data: ansFile.data, file_name: ansFile.name, mime: ansFile.mime } : null,
-    ).catch(() => null);
+  const sendReply = async (ticketId: number) => {
+    if (reply.trim().length < 2 && !replyFile) return;
+    setBusy(true); setErr("");
+    const res = await apiSendSupport({
+      ticket_id: ticketId, message: reply.trim(),
+      file: replyFile ? { file_data: replyFile.data, file_name: replyFile.name, mime: replyFile.mime } : null,
+    }).catch(() => null);
     setBusy(false);
-    if (!res?.ok) { setErr(res?.error || "Не удалось отправить ответ"); return; }
-    setAnswerFor(null);
-    setAnswerText("");
-    setAnsFile(null);
-    setDone(res.mail_sent ? "Ответ отправлен на почту" : "Ответ сохранён");
+    if (!res?.ok) { setErr(res?.error || "Не удалось отправить"); return; }
+    setReply(""); setReplyFile(null);
     load();
   };
 
-  const newCount = tickets.filter(t => t.status === "new").length;
+  const totalUnread = tickets.reduce((a, t) => a + (t.unread || 0), 0);
+  const open = tickets.find(t => t.id === openId) || null;
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/40" onClick={() => !busy && onClose()} />
       <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-lg animate-scale-in max-h-[88vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="font-montserrat font-bold text-base text-foreground flex items-center gap-2">
-            <Icon name="LifeBuoy" size={18} className="text-primary" />
-            {isAdmin ? "Обращения в поддержку" : "Помощь"}
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-border">
+          {open && (
+            <button onClick={() => setOpenId(null)} className="p-1 -ml-1 rounded-md hover:bg-muted transition-colors">
+              <Icon name="ChevronLeft" size={18} className="text-muted-foreground" />
+            </button>
+          )}
+          <h2 className="font-montserrat font-bold text-base text-foreground flex items-center gap-2 flex-1 min-w-0">
+            <Icon name="LifeBuoy" size={18} className="text-primary flex-shrink-0" />
+            <span className="truncate">
+              {open ? open.topic_label : isAdmin ? "Обращения в поддержку" : "Помощь"}
+            </span>
           </h2>
           <button onClick={onClose} disabled={busy} className="p-1 rounded-md hover:bg-muted transition-colors">
             <Icon name="X" size={18} className="text-muted-foreground" />
           </button>
         </div>
 
-        <div className="flex gap-1 px-5 pt-3">
-          <button onClick={() => { setView("write"); setDone(""); }}
-            className={`flex-1 py-2 rounded-lg text-xs font-montserrat font-bold transition-colors ${
-              view === "write" ? "red-accent text-white" : "text-muted-foreground hover:bg-muted"
-            }`}>
-            {isAdmin ? "Написать" : "Задать вопрос"}
-          </button>
-          <button onClick={() => { setView("history"); setDone(""); }}
-            className={`flex-1 py-2 rounded-lg text-xs font-montserrat font-bold transition-colors flex items-center justify-center gap-1.5 ${
-              view === "history" ? "red-accent text-white" : "text-muted-foreground hover:bg-muted"
-            }`}>
-            {isAdmin ? "Все обращения" : "Мои обращения"}
-            {newCount > 0 && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                view === "history" ? "bg-white/25" : "bg-primary text-white"
-              }`}>{newCount}</span>
-            )}
-          </button>
-        </div>
+        {!open && (
+          <div className="flex gap-1 px-5 pt-3">
+            <button onClick={() => { setView("write"); setDone(""); }}
+              className={`flex-1 py-2 rounded-lg text-xs font-montserrat font-bold transition-colors ${
+                view === "write" ? "red-accent text-white" : "text-muted-foreground hover:bg-muted"
+              }`}>
+              Новый вопрос
+            </button>
+            <button onClick={() => { setView("list"); setDone(""); }}
+              className={`flex-1 py-2 rounded-lg text-xs font-montserrat font-bold transition-colors flex items-center justify-center gap-1.5 ${
+                view === "list" ? "red-accent text-white" : "text-muted-foreground hover:bg-muted"
+              }`}>
+              {isAdmin ? "Все обращения" : "Мои обращения"}
+              {totalUnread > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                  view === "list" ? "bg-white/25" : "bg-primary text-white"
+                }`}>{totalUnread}</span>
+              )}
+            </button>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {view === "write" ? (
+          {open ? (
+            <div className="space-y-3">
+              {isAdmin && (
+                <p className="text-xs text-muted-foreground font-ibm pb-1 border-b border-border">
+                  {open.user_name} · {open.user_role === "student" ? "ученик" : "преподаватель"}
+                </p>
+              )}
+
+              {open.messages.map((m, i) => (
+                <div key={i} className={`flex ${m.is_staff ? "justify-start" : "justify-end"}`}>
+                  <div className={`max-w-[85%] rounded-xl px-3 py-2 ${
+                    m.is_staff ? "bg-primary/10 border border-primary/20" : "bg-muted"
+                  }`}>
+                    <p className="text-[10px] font-montserrat font-bold text-muted-foreground mb-0.5">
+                      {m.author} · {fmtDate(m.created_at)}
+                    </p>
+                    {m.text && (
+                      <p className="text-sm text-foreground font-ibm whitespace-pre-wrap break-words">{m.text}</p>
+                    )}
+                    {m.file_url && <Attachment url={m.file_url} name={m.file_name} type={m.file_type} />}
+                  </div>
+                </div>
+              ))}
+              <div ref={feedEnd} />
+            </div>
+          ) : view === "write" ? (
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground font-ibm">
                 Сообщение придёт напрямую администратору школы — на почту и в уведомления.
@@ -153,30 +230,17 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
                 onChange={e => { setText(e.target.value); setErr(""); setDone(""); }}
                 onPaste={e => {
                   const img = Array.from(e.clipboardData.files).find(f => f.type.startsWith("image/"));
-                  if (img) { e.preventDefault(); attach(img); }
+                  if (img) { e.preventDefault(); read(img, setFile); }
                 }}
                 placeholder="Опишите, что случилось. Скриншот можно вставить сюда через Ctrl+V"
                 className="w-full px-3 py-2.5 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 resize-none" />
 
               <input ref={fileInput} type="file" className="hidden"
                 accept="image/*,application/pdf,.doc,.docx,.txt,.zip"
-                onChange={e => { attach(e.target.files?.[0]); e.target.value = ""; }} />
+                onChange={e => { read(e.target.files?.[0], setFile); e.target.value = ""; }} />
 
               {file ? (
-                <div className="flex items-center gap-2.5 p-2 rounded-lg border border-border bg-muted/30">
-                  {file.preview ? (
-                    <img src={file.preview} alt="" className="w-12 h-12 rounded object-cover flex-shrink-0" />
-                  ) : (
-                    <span className="w-12 h-12 rounded bg-muted flex items-center justify-center flex-shrink-0">
-                      <Icon name="FileText" size={18} className="text-muted-foreground" />
-                    </span>
-                  )}
-                  <span className="flex-1 min-w-0 text-xs font-ibm text-foreground truncate">{file.name}</span>
-                  <button onClick={() => setFile(null)} disabled={busy}
-                    className="p-1.5 rounded-md hover:bg-muted transition-colors flex-shrink-0">
-                    <Icon name="X" size={14} className="text-muted-foreground" />
-                  </button>
-                </div>
+                <FileBar file={file} busy={busy} onClear={() => setFile(null)} />
               ) : (
                 <button onClick={() => fileInput.current?.click()} disabled={busy}
                   className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-border text-xs font-montserrat font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">
@@ -193,7 +257,7 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
                 </div>
               )}
 
-              <button onClick={send} disabled={busy}
+              <button onClick={sendNew} disabled={busy}
                 className="w-full py-2.5 red-accent text-white rounded-lg text-sm font-montserrat font-bold hover:opacity-90 disabled:opacity-60 flex items-center justify-center gap-2">
                 {busy ? <><Icon name="Loader" size={15} className="animate-spin" />Отправляю...</> : <><Icon name="Send" size={15} />Отправить</>}
               </button>
@@ -205,131 +269,77 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
               {isAdmin ? "Обращений пока нет" : "Вы ещё не писали в поддержку"}
             </p>
           ) : (
-            <div className="space-y-2.5">
-              {tickets.map(t => (
-                <div key={t.id} className={`rounded-lg border p-3 ${
-                  t.status === "new" ? "border-primary/30 bg-primary/5" : "border-border"
-                }`}>
-                  <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                    <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-montserrat font-bold">
-                      {t.topic_label}
-                    </span>
-                    {isAdmin && (
-                      <span className="text-xs font-montserrat font-bold text-foreground">{t.user_name}</span>
-                    )}
-                    <span className="text-[11px] text-muted-foreground font-ibm ml-auto">{fmtDate(t.created_at)}</span>
-                  </div>
-
-                  {t.message && (
-                    <p className="text-sm text-foreground font-ibm whitespace-pre-wrap break-words">{t.message}</p>
-                  )}
-
-                  {t.file_url && (
-                    t.file_type === "image" ? (
-                      <a href={t.file_url} target="_blank" rel="noreferrer" className="block mt-2">
-                        <img src={t.file_url} alt={t.file_name}
-                          className="max-h-40 rounded-lg border border-border object-contain hover:opacity-90 transition-opacity" />
-                      </a>
-                    ) : (
-                      <a href={t.file_url} target="_blank" rel="noreferrer"
-                        className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors">
-                        <Icon name="Paperclip" size={12} />
-                        {t.file_name || "Вложение"}
-                      </a>
-                    )
-                  )}
-
-                  {t.answer && (
-                    <div className="mt-2 pl-3 border-l-2 border-primary/40">
-                      <p className="text-[11px] font-montserrat font-bold text-primary mb-0.5">Ответ администратора</p>
-                      <p className="text-sm text-foreground font-ibm whitespace-pre-wrap break-words">{t.answer}</p>
-                    </div>
-                  )}
-
-                  {t.answer_file_url && (
-                    <div className="mt-2 pl-3 border-l-2 border-primary/40">
-                      {t.answer_file_type === "image" ? (
-                        <a href={t.answer_file_url} target="_blank" rel="noreferrer" className="block">
-                          <img src={t.answer_file_url} alt={t.answer_file_name}
-                            className="max-h-40 rounded-lg border border-border object-contain hover:opacity-90 transition-opacity" />
-                        </a>
-                      ) : (
-                        <a href={t.answer_file_url} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors">
-                          <Icon name="Paperclip" size={12} />
-                          {t.answer_file_name || "Вложение"}
-                        </a>
-                      )}
-                    </div>
-                  )}
-
-                  {isAdmin && t.status === "new" && (
-                    answerFor === t.id ? (
-                      <div className="mt-2 space-y-2">
-                        <textarea value={answerText} rows={3} autoFocus disabled={busy}
-                          onChange={e => setAnswerText(e.target.value)}
-                          onPaste={e => {
-                            const img = Array.from(e.clipboardData.files).find(f => f.type.startsWith("image/"));
-                            if (img) { e.preventDefault(); read(img, setAnsFile); }
-                          }}
-                          placeholder="Ваш ответ — уйдёт на почту и в уведомления. Скриншот можно вставить через Ctrl+V"
-                          className="w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 resize-none" />
-
-                        <input ref={ansInput} type="file" className="hidden"
-                          accept="image/*,application/pdf,.doc,.docx,.txt,.zip"
-                          onChange={e => { read(e.target.files?.[0], setAnsFile); e.target.value = ""; }} />
-
-                        {ansFile ? (
-                          <div className="flex items-center gap-2.5 p-2 rounded-lg border border-border bg-muted/30">
-                            {ansFile.preview ? (
-                              <img src={ansFile.preview} alt="" className="w-11 h-11 rounded object-cover flex-shrink-0" />
-                            ) : (
-                              <span className="w-11 h-11 rounded bg-muted flex items-center justify-center flex-shrink-0">
-                                <Icon name="FileText" size={16} className="text-muted-foreground" />
-                              </span>
-                            )}
-                            <span className="flex-1 min-w-0 text-xs font-ibm text-foreground truncate">{ansFile.name}</span>
-                            <button onClick={() => setAnsFile(null)} disabled={busy}
-                              className="p-1.5 rounded-md hover:bg-muted transition-colors flex-shrink-0">
-                              <Icon name="X" size={13} className="text-muted-foreground" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button onClick={() => ansInput.current?.click()} disabled={busy}
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-border text-xs font-montserrat font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">
-                            <Icon name="Paperclip" size={12} />
-                            Приложить скриншот
-                          </button>
-                        )}
-
-                        <div className="flex gap-2">
-                          <button onClick={() => reply(t.id)} disabled={busy || (answerText.trim().length < 2 && !ansFile)}
-                            className="px-3 py-1.5 rounded-lg red-accent text-white text-xs font-montserrat font-bold hover:opacity-90 disabled:opacity-50">
-                            {busy ? "Отправляю..." : "Ответить"}
-                          </button>
-                          <button onClick={() => { setAnswerFor(null); setAnswerText(""); setAnsFile(null); }}
-                            className="px-3 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-muted-foreground hover:text-foreground">
-                            Отмена
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => { setAnswerFor(t.id); setAnswerText(""); setAnsFile(null); }}
-                        className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors">
-                        <Icon name="Reply" size={12} />
-                        Ответить
-                      </button>
-                    )
-                  )}
-
-                  {t.status === "done" && !isAdmin && !t.answer && (
-                    <p className="text-[11px] text-muted-foreground font-ibm mt-1.5">Обращение закрыто</p>
-                  )}
+            <div className="space-y-2">
+              {done && (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-green-50 border border-green-200 mb-1">
+                  <Icon name="Check" size={14} className="text-green-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-green-700 font-ibm">{done}</p>
                 </div>
-              ))}
+              )}
+              {tickets.map(t => {
+                const last = t.messages[t.messages.length - 1];
+                return (
+                  <button key={t.id} onClick={() => openTicket(t)}
+                    className={`w-full text-left rounded-lg border p-3 transition-colors hover:bg-muted/40 ${
+                      t.unread > 0 ? "border-primary/40 bg-primary/5" : "border-border"
+                    }`}>
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-montserrat font-bold">
+                        {t.topic_label}
+                      </span>
+                      {isAdmin && <span className="text-xs font-montserrat font-bold text-foreground">{t.user_name}</span>}
+                      {t.unread > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary text-white font-bold">
+                          {t.unread}
+                        </span>
+                      )}
+                      <span className="text-[11px] text-muted-foreground font-ibm ml-auto">{fmtDate(t.last_at)}</span>
+                    </div>
+                    <p className="text-sm text-foreground font-ibm truncate">
+                      {last?.is_staff ? "Поддержка: " : ""}{last?.text || (last?.file_url ? "Вложение" : "")}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground font-ibm mt-0.5">
+                      {t.messages.length} {t.messages.length === 1 ? "сообщение" : "сообщений"}
+                      {t.status === "done" ? " · отвечено" : " · ждёт ответа"}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
+
+        {open && (
+          <div className="border-t border-border px-5 py-3 space-y-2">
+            {err && <p className="text-xs text-red-600 font-ibm">{err}</p>}
+            {replyFile && <FileBar file={replyFile} busy={busy} onClear={() => setReplyFile(null)} />}
+            <input ref={replyInput} type="file" className="hidden"
+              accept="image/*,application/pdf,.doc,.docx,.txt,.zip"
+              onChange={e => { read(e.target.files?.[0], setReplyFile); e.target.value = ""; }} />
+            <div className="flex items-end gap-2">
+              <button onClick={() => replyInput.current?.click()} disabled={busy}
+                title="Прикрепить скриншот или файл"
+                className="w-9 h-9 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors flex-shrink-0">
+                <Icon name="Paperclip" size={15} />
+              </button>
+              <textarea value={reply} rows={1} disabled={busy}
+                onChange={e => setReply(e.target.value)}
+                onPaste={e => {
+                  const img = Array.from(e.clipboardData.files).find(f => f.type.startsWith("image/"));
+                  if (img) { e.preventDefault(); read(img, setReplyFile); }
+                }}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply(open.id); }
+                }}
+                placeholder={isAdmin ? "Ответить ученику" : "Уточнить вопрос"}
+                className="flex-1 px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 resize-none max-h-24" />
+              <button onClick={() => sendReply(open.id)} disabled={busy || (reply.trim().length < 2 && !replyFile)}
+                className="w-9 h-9 rounded-lg red-accent text-white flex items-center justify-center hover:opacity-90 disabled:opacity-40 flex-shrink-0">
+                <Icon name={busy ? "Loader" : "Send"} size={15} className={busy ? "animate-spin" : ""} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
