@@ -2,13 +2,14 @@ import { type Page } from "@/App";
 import { type User } from "@/pages/LoginPage";
 import Icon from "@/components/ui/icon";
 import { useChatAlerts } from "@/hooks/useChatAlerts";
+import useHomeworkCount from "@/hooks/useHomeworkCount";
 
 const studentNav = [
   { id: "dashboard" as Page, label: "Главная", icon: "LayoutDashboard" },
   { id: "calendar" as Page, label: "Календарь", icon: "CalendarDays" },
   { id: "lesson" as Page, label: "Начать урок", icon: "Video" },
   { id: "materials" as Page, label: "Материалы", icon: "BookOpen" },
-  { id: "homework" as Page, label: "Домашние задания", icon: "ClipboardList", badge: 3 },
+  { id: "homework" as Page, label: "Домашние задания", icon: "ClipboardList" },
   { id: "exercises" as Page, label: "Интерактивные задания", icon: "Gamepad2" },
   { id: "chat" as Page, label: "Чат", icon: "MessageSquare" },
   { id: "profile" as Page, label: "Профиль", icon: "UserCircle" },
@@ -19,7 +20,7 @@ const teacherNav = [
   { id: "calendar" as Page, label: "Расписание", icon: "CalendarDays" },
   { id: "lesson" as Page, label: "Начать урок", icon: "Video" },
   { id: "materials" as Page, label: "Материалы", icon: "BookOpen" },
-  { id: "homework" as Page, label: "Проверка заданий", icon: "ClipboardCheck", badge: 2 },
+  { id: "homework" as Page, label: "Проверка заданий", icon: "ClipboardCheck" },
   { id: "exercises" as Page, label: "Интерактивные задания", icon: "Gamepad2" },
   { id: "chat" as Page, label: "Чат", icon: "MessageSquare" },
   { id: "students" as Page, label: "Ученики и группы", icon: "Users" },
@@ -41,6 +42,7 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onClose, user,
   const navItems = user.role === "teacher" || user.role === "admin" ? teacherNav : studentNav;
   const isTeacher = user.role === "teacher" || user.role === "admin";
   const { unread, soundOn, setSoundOn, inLesson } = useChatAlerts();
+  const hwCount = useHomeworkCount(user.role);
 
   return (
     <>
@@ -116,9 +118,9 @@ export default function Sidebar({ activePage, onNavigate, isOpen, onClose, user,
                   <span className="ml-auto bg-accent text-accent-foreground text-xs font-bold px-1.5 py-0.5 rounded-full font-montserrat">
                     {unread > 99 ? "99+" : unread}
                   </span>
-                ) : "badge" in item && item.badge ? (
+                ) : item.id === "homework" && hwCount > 0 ? (
                   <span className="ml-auto bg-accent text-accent-foreground text-xs font-bold px-1.5 py-0.5 rounded-full font-montserrat">
-                    {item.badge}
+                    {hwCount > 99 ? "99+" : hwCount}
                   </span>
                 ) : null}
               </button>

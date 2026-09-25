@@ -48,6 +48,8 @@ export default function HomeworkPage({ user }: { user: User }) {
     apiGetHomework().then(res => {
       if (res.homework) setHomework(res.homework);
       setLoading(false);
+      // Счётчик в меню берёт те же данные — пусть обновится сразу
+      window.dispatchEvent(new Event("homework-changed"));
     });
   };
 
