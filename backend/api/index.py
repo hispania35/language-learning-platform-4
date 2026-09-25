@@ -1175,7 +1175,8 @@ def get_support(conn, user_id, role):
         cur.execute(
             """SELECT t.id, t.topic, t.message, t.status, t.answer, t.created_at,
                       u.name, u.email, u.role, t.answered_at,
-                      t.file_url, t.file_name, t.file_type
+                      t.file_url, t.file_name, t.file_type,
+                      t.answer_file_url, t.answer_file_name, t.answer_file_type
                FROM support_tickets t JOIN users u ON u.id=t.user_id
                ORDER BY (t.status='new') DESC, t.created_at DESC LIMIT 100"""
         )
@@ -1183,7 +1184,8 @@ def get_support(conn, user_id, role):
         cur.execute(
             """SELECT t.id, t.topic, t.message, t.status, t.answer, t.created_at,
                       u.name, u.email, u.role, t.answered_at,
-                      t.file_url, t.file_name, t.file_type
+                      t.file_url, t.file_name, t.file_type,
+                      t.answer_file_url, t.answer_file_name, t.answer_file_type
                FROM support_tickets t JOIN users u ON u.id=t.user_id
                WHERE t.user_id=%s ORDER BY t.created_at DESC LIMIT 50""",
             (user_id,)
@@ -1197,6 +1199,7 @@ def get_support(conn, user_id, role):
         "user_name": r[6], "user_email": r[7], "user_role": r[8],
         "answered_at": r[9].isoformat() if r[9] else None,
         "file_url": r[10], "file_name": r[11], "file_type": r[12],
+        "answer_file_url": r[13], "answer_file_name": r[14], "answer_file_type": r[15],
     } for r in rows]
     new_count = len([t for t in tickets if t["status"] == "new"])
     return resp(200, {"tickets": tickets, "new_count": new_count})
@@ -1274,7 +1277,15 @@ def answer_support(event, conn, user_id, role):
     if not ticket_id:
         conn.close()
         return resp(400, {"error": "Не указано обращение"})
-    if not answer and not close_only:
+    a_url = a_name = a_type = ""
+    if body.get("file_data"):
+        try:
+            a_url, a_name, a_type = _store_support_file(body)
+        except Exception as e:
+            conn.close()
+            return resp(400, {"error": str(e) or "Не удалось загрузить файл"})
+
+    if not answer and not close_only and not a_url:
         conn.close()
         return resp(400, {"error": "Напишите ответ"})
 
@@ -1290,31 +1301,40 @@ def answer_support(event, conn, user_id, role):
         return resp(404, {"error": "Обращение не найдено"})
 
     cur.execute(
-        """UPDATE support_tickets SET answer=%s, status='done', answered_by=%s, answered_at=NOW()
+        """UPDATE support_tickets SET answer=%s, status='done', answered_by=%s, answered_at=NOW(),
+               answer_file_url=%s, answer_file_name=%s, answer_file_type=%s
            WHERE id=%s""",
-        (answer[:4000], user_id, int(ticket_id))
+        (answer[:4000], user_id, a_url, a_name[:255], a_type, int(ticket_id))
     )
-    if answer:
+    if answer or a_url:
+        note = f"Ответ поддержки: {answer[:80]}" if answer else "Поддержка прислала файл по вашему вопросу"
         cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'system')",
-                    (row[0], f"Ответ поддержки: {answer[:80]}"))
+                    (row[0], note))
     conn.commit()
     cur.close(); conn.close()
 
     sent = False
-    if answer and row[2]:
-        html = _wrap(
-            "Ответ службы поддержки",
-            [
-                f"{row[1]}, здравствуйте!",
-                "Ваш вопрос:",
-                f'<span style="display:block;padding:10px;background:#f3f4f6;border-radius:8px;color:#6b7280">{row[3][:600]}</span>',
-                "Ответ:",
-                f'<span style="display:block;padding:12px;background:#fef2f2;border-radius:8px">{answer[:1500]}</span>',
-            ],
-        )
-        sent = send_email(row[2], "Ответ на ваш вопрос — Hispania 35", html, answer[:500])
+    if (answer or a_url) and row[2]:
+        blocks = [
+            f"{row[1]}, здравствуйте!",
+            "Ваш вопрос:",
+            f'<span style="display:block;padding:10px;background:#f3f4f6;border-radius:8px;color:#6b7280">{row[3][:600]}</span>',
+        ]
+        if answer:
+            blocks += ["Ответ:",
+                       f'<span style="display:block;padding:12px;background:#fef2f2;border-radius:8px">{answer[:1500]}</span>']
+        if a_url:
+            if a_type == "image":
+                blocks.append(
+                    f'<a href="{a_url}"><img src="{a_url}" alt="{a_name}" '
+                    f'style="max-width:100%;border-radius:8px;border:1px solid #e5e7eb"></a>')
+            else:
+                blocks.append(f'<a href="{a_url}" style="color:#b91c1c;font-weight:bold">Файл: {a_name}</a>')
+        html = _wrap("Ответ службы поддержки", blocks)
+        sent = send_email(row[2], "Ответ на ваш вопрос — Hispania 35",
+                          html, answer[:500] or "Поддержка прислала файл")
 
-    return resp(200, {"ok": True, "mail_sent": sent})
+    return resp(200, {"ok": True, "mail_sent": sent, "file_url": a_url})
 
 
 def get_profile(conn, user_id):

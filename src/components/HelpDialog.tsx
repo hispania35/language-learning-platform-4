@@ -19,6 +19,8 @@ const fmtDate = (s: string | null) => {
   } catch { return ""; }
 };
 
+interface Attach { data: string; name: string; mime: string; preview: string }
+
 export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onClose: () => void }) {
   const [view, setView] = useState<"write" | "history">(isAdmin ? "history" : "write");
   const [topic, setTopic] = useState("tech");
@@ -30,16 +32,18 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
   const [loading, setLoading] = useState(true);
   const [answerFor, setAnswerFor] = useState<number | null>(null);
   const [answerText, setAnswerText] = useState("");
-  const [file, setFile] = useState<{ data: string; name: string; mime: string; preview: string } | null>(null);
+  const [file, setFile] = useState<Attach | null>(null);
+  const [ansFile, setAnsFile] = useState<Attach | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const ansInput = useRef<HTMLInputElement>(null);
 
-  const attach = (f: File | null | undefined) => {
+  const read = (f: File | null | undefined, set: (a: Attach) => void) => {
     if (!f) return;
     if (f.size > 15 * 1024 * 1024) { setErr("Файл больше 15 МБ"); return; }
     const reader = new FileReader();
     reader.onload = () => {
       const data = String(reader.result || "");
-      setFile({
+      set({
         data, name: f.name || "screenshot.png", mime: f.type || "application/octet-stream",
         preview: f.type.startsWith("image/") ? data : "",
       });
@@ -47,6 +51,8 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
     };
     reader.readAsDataURL(f);
   };
+
+  const attach = (f: File | null | undefined) => read(f, setFile);
 
   const load = () => {
     apiGetSupport()
@@ -73,13 +79,17 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
   };
 
   const reply = async (id: number) => {
-    if (answerText.trim().length < 2) return;
+    if (answerText.trim().length < 2 && !ansFile) return;
     setBusy(true);
-    const res = await apiAnswerSupport(id, answerText.trim()).catch(() => null);
+    const res = await apiAnswerSupport(
+      id, answerText.trim(),
+      ansFile ? { file_data: ansFile.data, file_name: ansFile.name, mime: ansFile.mime } : null,
+    ).catch(() => null);
     setBusy(false);
     if (!res?.ok) { setErr(res?.error || "Не удалось отправить ответ"); return; }
     setAnswerFor(null);
     setAnswerText("");
+    setAnsFile(null);
     setDone(res.mail_sent ? "Ответ отправлен на почту" : "Ответ сохранён");
     load();
   };
@@ -236,26 +246,75 @@ export default function HelpDialog({ isAdmin, onClose }: { isAdmin: boolean; onC
                     </div>
                   )}
 
+                  {t.answer_file_url && (
+                    <div className="mt-2 pl-3 border-l-2 border-primary/40">
+                      {t.answer_file_type === "image" ? (
+                        <a href={t.answer_file_url} target="_blank" rel="noreferrer" className="block">
+                          <img src={t.answer_file_url} alt={t.answer_file_name}
+                            className="max-h-40 rounded-lg border border-border object-contain hover:opacity-90 transition-opacity" />
+                        </a>
+                      ) : (
+                        <a href={t.answer_file_url} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors">
+                          <Icon name="Paperclip" size={12} />
+                          {t.answer_file_name || "Вложение"}
+                        </a>
+                      )}
+                    </div>
+                  )}
+
                   {isAdmin && t.status === "new" && (
                     answerFor === t.id ? (
                       <div className="mt-2 space-y-2">
                         <textarea value={answerText} rows={3} autoFocus disabled={busy}
                           onChange={e => setAnswerText(e.target.value)}
-                          placeholder="Ваш ответ — уйдёт на почту и в уведомления"
+                          onPaste={e => {
+                            const img = Array.from(e.clipboardData.files).find(f => f.type.startsWith("image/"));
+                            if (img) { e.preventDefault(); read(img, setAnsFile); }
+                          }}
+                          placeholder="Ваш ответ — уйдёт на почту и в уведомления. Скриншот можно вставить через Ctrl+V"
                           className="w-full px-3 py-2 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 resize-none" />
+
+                        <input ref={ansInput} type="file" className="hidden"
+                          accept="image/*,application/pdf,.doc,.docx,.txt,.zip"
+                          onChange={e => { read(e.target.files?.[0], setAnsFile); e.target.value = ""; }} />
+
+                        {ansFile ? (
+                          <div className="flex items-center gap-2.5 p-2 rounded-lg border border-border bg-muted/30">
+                            {ansFile.preview ? (
+                              <img src={ansFile.preview} alt="" className="w-11 h-11 rounded object-cover flex-shrink-0" />
+                            ) : (
+                              <span className="w-11 h-11 rounded bg-muted flex items-center justify-center flex-shrink-0">
+                                <Icon name="FileText" size={16} className="text-muted-foreground" />
+                              </span>
+                            )}
+                            <span className="flex-1 min-w-0 text-xs font-ibm text-foreground truncate">{ansFile.name}</span>
+                            <button onClick={() => setAnsFile(null)} disabled={busy}
+                              className="p-1.5 rounded-md hover:bg-muted transition-colors flex-shrink-0">
+                              <Icon name="X" size={13} className="text-muted-foreground" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => ansInput.current?.click()} disabled={busy}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-border text-xs font-montserrat font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">
+                            <Icon name="Paperclip" size={12} />
+                            Приложить скриншот
+                          </button>
+                        )}
+
                         <div className="flex gap-2">
-                          <button onClick={() => reply(t.id)} disabled={busy}
+                          <button onClick={() => reply(t.id)} disabled={busy || (answerText.trim().length < 2 && !ansFile)}
                             className="px-3 py-1.5 rounded-lg red-accent text-white text-xs font-montserrat font-bold hover:opacity-90 disabled:opacity-50">
                             {busy ? "Отправляю..." : "Ответить"}
                           </button>
-                          <button onClick={() => { setAnswerFor(null); setAnswerText(""); }}
+                          <button onClick={() => { setAnswerFor(null); setAnswerText(""); setAnsFile(null); }}
                             className="px-3 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-muted-foreground hover:text-foreground">
                             Отмена
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <button onClick={() => { setAnswerFor(t.id); setAnswerText(""); }}
+                      <button onClick={() => { setAnswerFor(t.id); setAnswerText(""); setAnsFile(null); }}
                         className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-montserrat font-bold text-foreground hover:bg-muted transition-colors">
                         <Icon name="Reply" size={12} />
                         Ответить
