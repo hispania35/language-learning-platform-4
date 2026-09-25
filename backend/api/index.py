@@ -13,7 +13,7 @@ GET  /leaderboard           — рейтинг
 """
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import psycopg2
 from mailer import send_email, send_bulk, lesson_started_email, lesson_reminder_email, _wrap
 
@@ -605,6 +605,9 @@ def create_lesson(event, conn, user_id, role):
     if not topic or not lesson_date or not lesson_time:
         conn.close()
         return resp(400, {"error": "Тема, дата и время обязательны"})
+    if is_past(lesson_date, lesson_time):
+        conn.close()
+        return resp(400, {"error": "Это время уже прошло — выберите будущую дату и время"})
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO lessons (teacher_id, title, topic, lesson_date, lesson_time, duration_min, lesson_type)
@@ -656,6 +659,9 @@ def move_lesson(event, conn, user_id, role):
     if not lesson_id or not lesson_date or not lesson_time:
         conn.close()
         return resp(400, {"error": "id, дата и время обязательны"})
+    if is_past(lesson_date, lesson_time):
+        conn.close()
+        return resp(400, {"error": "Это время уже прошло — выберите будущую дату и время"})
     cur = conn.cursor()
     cur.execute("SELECT topic, lesson_date, lesson_time FROM lessons WHERE id=%s AND teacher_id=%s",
                 (lesson_id, user_id))
@@ -734,6 +740,9 @@ def delete_lesson(event, conn, user_id, role):
     cur.execute("SELECT student_id FROM lesson_students WHERE lesson_id=%s", (lesson_id,))
     student_ids = [r[0] for r in cur.fetchall()]
     cur.execute("DELETE FROM lesson_students WHERE lesson_id=%s", (lesson_id,))
+    # Окно записи снова становится свободным
+    cur.execute("UPDATE lesson_slots SET booked_by=NULL, booked_at=NULL, lesson_id=NULL WHERE lesson_id=%s",
+                (lesson_id,))
     cur.execute("DELETE FROM lessons WHERE id=%s AND teacher_id=%s", (lesson_id, user_id))
     notify_many(cur, [(sid, f"Занятие отменено {l_date} {str(l_time)[:5]}: {topic}")
                       for sid in student_ids], "calendar")
@@ -1578,6 +1587,28 @@ def start_lesson(event, conn, user_id, role):
 
 SCHOOL_TZ = "Europe/Moscow"
 
+
+def school_now():
+    """Текущий момент по времени школы."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo(SCHOOL_TZ)).replace(tzinfo=None)
+    except Exception:
+        return datetime.utcnow() + timedelta(hours=3)
+
+
+def is_past(l_date, l_time):
+    """Проверка: дата и время уже в прошлом по времени школы."""
+    try:
+        if isinstance(l_time, str):
+            hh, mm = (l_time.strip()[:5].split(":") + ["0"])[:2]
+            l_time = time(int(hh), int(mm))
+        if isinstance(l_date, str):
+            l_date = datetime.strptime(l_date.strip()[:10], "%Y-%m-%d").date()
+        return datetime.combine(l_date, l_time) < school_now()
+    except Exception:
+        return False
+
 def in_user_tz(l_date, l_time, user_tz):
     """Время урока (хранится по школе) в поясе ученика. Возвращает '' если пояс тот же."""
     if not user_tz or user_tz == SCHOOL_TZ:
@@ -1980,10 +2011,14 @@ def create_slots(event, conn, user_id, role):
 
     cur = conn.cursor()
     added = 0
+    skipped_past = 0
     for it in items:
         d = (it.get("date") or "").strip()
         t = (it.get("time") or "").strip()
         if not d or not t:
+            continue
+        if is_past(d, t):
+            skipped_past += 1
             continue
         cur.execute(
             """INSERT INTO lesson_slots (teacher_id, slot_date, slot_time, duration_min)
@@ -1994,10 +2029,12 @@ def create_slots(event, conn, user_id, role):
         added += cur.rowcount
     conn.commit()
     cur.close(); conn.close()
-    return resp(200, {"ok": True, "added": added})
+    if not added and skipped_past:
+        return resp(400, {"error": "Это время уже прошло — выберите будущее"})
+    return resp(200, {"ok": True, "added": added, "skipped_past": skipped_past})
 
 def delete_slot(event, conn, user_id, role):
-    """Преподаватель закрывает свободное окно."""
+    """Преподаватель убирает окно записи. Занятое — вместе с уроком."""
     if role not in ("teacher", "admin"):
         conn.close()
         return resp(403, {"error": "Только преподаватель"})
@@ -2009,10 +2046,24 @@ def delete_slot(event, conn, user_id, role):
 
     cur = conn.cursor()
     cur.execute(
-        "DELETE FROM lesson_slots WHERE id=%s AND teacher_id=%s AND booked_by IS NULL",
+        "SELECT booked_by, lesson_id, slot_date, slot_time FROM lesson_slots WHERE id=%s AND teacher_id=%s",
         (int(slot_id), user_id)
     )
-    changed = cur.rowcount
+    row = cur.fetchone()
+    if not row:
+        cur.close(); conn.close()
+        return resp(404, {"error": "Окно не найдено"})
+    booked_by, lesson_id, s_date, s_time = row
+
+    # Занятое окно закрывается вместе с уроком — ученик получит уведомление
+    if lesson_id:
+        cur.execute("DELETE FROM lesson_students WHERE lesson_id=%s", (lesson_id,))
+        cur.execute("DELETE FROM lessons WHERE id=%s", (lesson_id,))
+    if booked_by:
+        cur.execute("INSERT INTO notifications (user_id, text, type) VALUES (%s,%s,'calendar')",
+                    (booked_by, f"Занятие отменено: {s_date} {str(s_time)[:5]}"))
+
+    cur.execute("DELETE FROM lesson_slots WHERE id=%s AND teacher_id=%s", (int(slot_id), user_id))
     # Подчищаем окна, спрятанные старым способом (перенос на 1900-01-01)
     cur.execute(
         "DELETE FROM lesson_slots WHERE teacher_id=%s AND slot_date='1900-01-01' AND booked_by IS NULL",
@@ -2020,9 +2071,7 @@ def delete_slot(event, conn, user_id, role):
     )
     conn.commit()
     cur.close(); conn.close()
-    if not changed:
-        return resp(404, {"error": "Окно уже занято или удалено"})
-    return resp(200, {"ok": True})
+    return resp(200, {"ok": True, "was_booked": bool(booked_by)})
 
 def book_slot(event, conn, user_id, role):
     """Ученик записывается на свободное время преподавателя."""
@@ -2037,11 +2086,29 @@ def book_slot(event, conn, user_id, role):
         return resp(400, {"error": "Нет окна"})
 
     cur = conn.cursor()
+    if not cancel:
+        cur.execute("SELECT slot_date, slot_time FROM lesson_slots WHERE id=%s", (int(slot_id),))
+        w = cur.fetchone()
+        if w and is_past(w[0], w[1]):
+            cur.close(); conn.close()
+            return resp(400, {"error": "Это время уже прошло — выберите другое"})
+
     if cancel:
+        cur.execute("SELECT lesson_id FROM lesson_slots WHERE id=%s AND booked_by=%s",
+                    (int(slot_id), user_id))
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            return resp(404, {"error": "Запись не найдена"})
+        lesson_id = row[0]
         cur.execute(
-            "UPDATE lesson_slots SET booked_by=NULL, booked_at=NULL WHERE id=%s AND booked_by=%s",
+            "UPDATE lesson_slots SET booked_by=NULL, booked_at=NULL, lesson_id=NULL WHERE id=%s AND booked_by=%s",
             (int(slot_id), user_id)
         )
+        # Урок, созданный этой записью, тоже убираем
+        if lesson_id:
+            cur.execute("DELETE FROM lesson_students WHERE lesson_id=%s", (lesson_id,))
+            cur.execute("DELETE FROM lessons WHERE id=%s", (lesson_id,))
         conn.commit()
         cur.close(); conn.close()
         return resp(200, {"ok": True})

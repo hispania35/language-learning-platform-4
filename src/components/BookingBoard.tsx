@@ -17,6 +17,12 @@ const humanDate = (iso: string) => {
 
 const HOURS = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00"];
 
+/** Дата и время уже прошли */
+const isPast = (date: string, time: string) => {
+  const d = new Date(`${date}T${time}:00`);
+  return !isNaN(d.getTime()) && d.getTime() < Date.now();
+};
+
 export default function BookingBoard({ user, onChanged }: { user: User; onChanged?: () => void }) {
   const isTeacher = user.role === "teacher" || user.role === "admin";
   const [slots, setSlots] = useState<LessonSlot[]>([]);
@@ -27,6 +33,7 @@ export default function BookingBoard({ user, onChanged }: { user: User; onChange
   const [addDate, setAddDate] = useState(toKey(new Date()));
   const [addTimes, setAddTimes] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [confirm, setConfirm] = useState<{ slot: LessonSlot; kind: "cancel" | "remove" } | null>(null);
 
   const load = useCallback(async () => {
     const r = await apiGetSlots().catch(() => null);
@@ -43,6 +50,7 @@ export default function BookingBoard({ user, onChanged }: { user: User; onChange
   const dates = Object.keys(byDate).sort();
 
   const book = async (s: LessonSlot) => {
+    setConfirm(null);
     setBusy(s.id); setMsg("");
     const r = await apiBookSlot(s.id, s.mine).catch(() => null);
     setBusy(null);
@@ -53,6 +61,7 @@ export default function BookingBoard({ user, onChanged }: { user: User; onChange
   };
 
   const removeSlot = async (s: LessonSlot) => {
+    setConfirm(null);
     setBusy(s.id); setMsg("");
     const r = await apiDeleteSlot(s.id).catch(() => null);
     setBusy(null);
@@ -96,18 +105,26 @@ export default function BookingBoard({ user, onChanged }: { user: User; onChange
         <div className="px-4 sm:px-5 py-4 border-b border-border bg-muted/30 animate-fade-in">
           <label className="block text-xs font-montserrat font-medium text-muted-foreground mb-1.5">Дата</label>
           <input type="date" value={addDate} min={toKey(new Date())}
-            onChange={e => setAddDate(e.target.value)}
+            onChange={e => {
+              const d = e.target.value;
+              setAddDate(d);
+              setAddTimes(prev => prev.filter(t => !isPast(d, t)));
+            }}
             className="w-full sm:w-56 px-3 py-2 rounded-lg border border-border bg-card text-sm font-ibm outline-none focus:border-primary/40" />
 
           <p className="text-xs font-montserrat font-medium text-muted-foreground mt-3 mb-1.5">Время</p>
           <div className="flex flex-wrap gap-1.5">
             {HOURS.map(t => {
               const on = addTimes.includes(t);
+              const past = isPast(addDate, t);
               return (
-                <button key={t}
+                <button key={t} disabled={past}
+                  title={past ? "Это время уже прошло" : undefined}
                   onClick={() => setAddTimes(prev => on ? prev.filter(x => x !== t) : [...prev, t])}
                   className={`px-2.5 py-1.5 rounded-lg border text-xs font-montserrat font-medium transition-colors ${
-                    on ? "border-primary bg-primary text-white" : "border-border text-foreground hover:bg-muted"
+                    past ? "border-border text-muted-foreground/40 line-through cursor-not-allowed"
+                      : on ? "border-primary bg-primary text-white"
+                      : "border-border text-foreground hover:bg-muted"
                   }`}>
                   {t}
                 </button>
@@ -156,8 +173,10 @@ export default function BookingBoard({ user, onChanged }: { user: User; onChange
                       <span className="text-xs text-muted-foreground font-ibm">
                         {taken ? s.booked_name : "свободно"}
                       </span>
-                      {!taken && (
-                        <button onClick={() => removeSlot(s)} disabled={busy === s.id} title="Убрать окно"
+                      {(
+                        <button
+                          onClick={() => taken ? setConfirm({ slot: s, kind: "remove" }) : removeSlot(s)}
+                          disabled={busy === s.id} title={taken ? "Отменить занятие" : "Убрать окно"}
                           className="p-0.5 rounded hover:bg-muted text-muted-foreground hover:text-red-600 transition-colors disabled:opacity-50">
                           <Icon name={busy === s.id ? "Loader" : "X"} size={14}
                             className={busy === s.id ? "animate-spin" : ""} />
@@ -168,7 +187,10 @@ export default function BookingBoard({ user, onChanged }: { user: User; onChange
                 }
                 return (
                   <button key={s.id}
-                    onClick={() => (!taken || s.mine) && book(s)}
+                    onClick={() => {
+                      if (s.mine) setConfirm({ slot: s, kind: "cancel" });
+                      else if (!taken) book(s);
+                    }}
                     disabled={busy === s.id || (taken && !s.mine)}
                     className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-montserrat font-bold transition-colors ${
                       s.mine ? "border-primary bg-primary text-white"
@@ -190,6 +212,45 @@ export default function BookingBoard({ user, onChanged }: { user: User; onChange
         <p className="px-4 sm:px-5 py-2.5 text-xs text-muted-foreground font-ibm border-t border-border">
           Нажмите на своё время ещё раз, чтобы отменить запись.
         </p>
+      )}
+
+      {confirm && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setConfirm(null)} />
+          <div className="relative bg-card border border-border rounded-xl shadow-xl w-full max-w-sm p-5 animate-scale-in">
+            <div className="flex items-start gap-3">
+              <span className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
+                <Icon name="TriangleAlert" size={18} className="text-red-600" />
+              </span>
+              <div className="flex-1 min-w-0">
+                <h4 className="font-montserrat font-bold text-sm text-foreground">
+                  {confirm.kind === "cancel" ? "Отменить запись?" : "Отменить занятие?"}
+                </h4>
+                <p className="text-xs text-muted-foreground font-ibm mt-1">
+                  {humanDate(confirm.slot.date)}, {confirm.slot.time}
+                  {confirm.kind === "remove" && confirm.slot.booked_name
+                    ? ` · ${confirm.slot.booked_name}`
+                    : ""}
+                  .{" "}
+                  {confirm.kind === "cancel"
+                    ? "Занятие пропадёт из вашего расписания, время станет свободным."
+                    : "Ученик получит уведомление, занятие пропадёт из расписания."}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setConfirm(null)}
+                className="flex-1 py-2 rounded-lg border border-border text-sm font-montserrat font-medium text-foreground hover:bg-muted transition-colors">
+                Не отменять
+              </button>
+              <button
+                onClick={() => confirm.kind === "cancel" ? book(confirm.slot) : removeSlot(confirm.slot)}
+                className="flex-1 py-2 rounded-lg bg-red-600 text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity">
+                Да, отменить
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
