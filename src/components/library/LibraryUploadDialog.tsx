@@ -5,7 +5,9 @@ import {
   type LibrarySubject,
 } from "@/lib/api";
 
-const SMALL_MB = 20;
+// Облако режет запрос к функции на ~3.5 МБ, а base64 раздувает файл на треть.
+// Всё крупнее 2 МБ грузим браузером напрямую в хранилище.
+const SMALL_MB = 2;
 
 const fmtSize = (b?: number) => {
   if (!b) return "";
@@ -230,9 +232,17 @@ export default function LibraryUploadDialog({
         description: description.trim(),
         subject_id: dest,
       };
-      const big = directUpload && row.file.size > SMALL_MB * 1024 * 1024;
+      const big = row.file.size > SMALL_MB * 1024 * 1024;
       let lastError = "";
       let done = false;
+
+      // Крупный файл без прямой загрузки в облако не пройдёт — не мучаем сервер
+      if (big && !directUpload) {
+        const msg = `Файл больше ${SMALL_MB} МБ — хранилище недоступно, обратитесь в поддержку`;
+        patch(i, { state: "fail", error: msg });
+        failedRows.push({ ...row, error: msg });
+        continue;
+      }
 
       // До трёх попыток: сервер иногда отбрасывает файлы при плотном потоке
       for (let attempt = 1; attempt <= 3 && !done; attempt++) {
@@ -266,8 +276,8 @@ export default function LibraryUploadDialog({
         failedRows.push({ ...row, error: lastError });
       }
 
-      // Небольшая пауза между файлами — иначе сервер захлёбывается
-      await sleep(250);
+      // Пауза нужна только мелким файлам — они идут через функцию
+      if (!big) await sleep(250);
     }
 
     setBusy(false);
