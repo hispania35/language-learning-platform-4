@@ -846,7 +846,7 @@ export async function apiDeleteLibrarySubject(id: number) {
   return r.data as { ok?: boolean; error?: string };
 }
 
-/** Загрузка большого файла: берём ссылку, льём файл прямо в облако, затем создаём карточку */
+/** Загрузка файла: берём ссылку, льём файл прямо в облако, затем создаём карточку */
 export async function apiUploadLibraryLarge(
   file: File,
   meta: { title: string; author?: string; description?: string; duration_sec?: number; subject_id?: number | null },
@@ -858,25 +858,33 @@ export async function apiUploadLibraryLarge(
     body: JSON.stringify({ file_name: file.name, mime, size: file.size }),
   });
   const s = slot.data as { upload_url?: string; key?: string; error?: string };
-  if (!s.upload_url || !s.key) return { error: s.error || "Не удалось начать загрузку" };
+  if (!s.upload_url || !s.key) return { error: s.error || "Сервер не выдал ссылку на загрузку" };
 
-  await new Promise<void>((resolve, reject) => {
+  const sent = await new Promise<string>((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", s.upload_url as string);
     xhr.setRequestHeader("Content-Type", mime);
+    xhr.timeout = 15 * 60 * 1000;
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
     };
-    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`)));
-    xhr.onerror = () => reject(new Error("network"));
+    xhr.onload = () => resolve(
+      xhr.status >= 200 && xhr.status < 300 ? "" : `Хранилище отклонило файл (код ${xhr.status})`
+    );
+    xhr.onerror = () => resolve("Нет связи с хранилищем");
+    xhr.ontimeout = () => resolve("Файл грузился слишком долго");
+    xhr.onabort = () => resolve("Загрузка прервана");
     xhr.send(file);
   });
+  if (sent) return { error: sent };
 
   const r = await request(LIBRARY_URL + "?p=confirm", {
     method: "POST",
     body: JSON.stringify({ ...meta, key: s.key, file_name: file.name, mime, size: file.size }),
   });
-  return r.data as { ok?: boolean; id?: number; file_url?: string; kind?: string; error?: string };
+  const res = r.data as { ok?: boolean; id?: number; file_url?: string; kind?: string; error?: string };
+  if (!res.ok && !res.error) return { ...res, error: "Файл загружен, но карточка не создалась" };
+  return res;
 }
 
 export async function apiUploadLibraryItem(data: {

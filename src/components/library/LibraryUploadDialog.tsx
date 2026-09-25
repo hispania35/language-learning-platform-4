@@ -5,10 +5,6 @@ import {
   type LibrarySubject,
 } from "@/lib/api";
 
-// Облако режет запрос к функции на ~3.5 МБ, а base64 раздувает файл на треть.
-// Всё крупнее 2 МБ грузим браузером напрямую в хранилище.
-const SMALL_MB = 2;
-
 const fmtSize = (b?: number) => {
   if (!b) return "";
   if (b < 1024 * 1024) return `${Math.round(b / 1024)} КБ`;
@@ -232,26 +228,18 @@ export default function LibraryUploadDialog({
         description: description.trim(),
         subject_id: dest,
       };
-      const big = row.file.size > SMALL_MB * 1024 * 1024;
       let lastError = "";
       let done = false;
 
-      // Крупный файл без прямой загрузки в облако не пройдёт — не мучаем сервер
-      if (big && !directUpload) {
-        const msg = `Файл больше ${SMALL_MB} МБ — хранилище недоступно, обратитесь в поддержку`;
-        patch(i, { state: "fail", error: msg });
-        failedRows.push({ ...row, error: msg });
-        continue;
-      }
-
-      // До трёх попыток: сервер иногда отбрасывает файлы при плотном потоке
+      // Все файлы идут одним путём — прямо в хранилище, без деления по размеру.
+      // Запасной путь через функцию нужен, только если хранилище не настроено.
       for (let attempt = 1; attempt <= 3 && !done; attempt++) {
         if (attempt > 1) {
           patch(i, { state: "run", progress: 0, error: `Повтор ${attempt} из 3...` });
           await sleep(900 * attempt);
         }
         try {
-          const res = big
+          const res = directUpload
             ? await apiUploadLibraryLarge(row.file, meta, p => patch(i, { progress: p }))
             : await apiUploadLibraryItem({
                 ...meta,
@@ -275,9 +263,6 @@ export default function LibraryUploadDialog({
         patch(i, { state: "fail", error: lastError });
         failedRows.push({ ...row, error: lastError });
       }
-
-      // Пауза нужна только мелким файлам — они идут через функцию
-      if (!big) await sleep(250);
     }
 
     setBusy(false);
