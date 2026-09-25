@@ -28,6 +28,8 @@ export type Page = "dashboard" | "calendar" | "lesson" | "materials" | "homework
 const PAGES: Page[] = ["dashboard", "calendar", "lesson", "materials", "homework",
   "exercises", "students", "chat", "profile", "settings"];
 
+const LAST_PLACE = "hispania_last_place";
+
 /** Вкладка запоминается в адресе — обновление страницы возвращает туда же */
 const pageFromUrl = (): Page => {
   const params = new URLSearchParams(window.location.search);
@@ -37,9 +39,52 @@ const pageFromUrl = (): Page => {
   return p && p !== "lesson" && PAGES.includes(p) ? p : "dashboard";
 };
 
+/** Последнее место, где работал этот пользователь */
+const readLastPlace = (): { userId: number; page: Page; sub?: string } | null => {
+  try {
+    const raw = localStorage.getItem(LAST_PLACE);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    if (!v?.userId || !PAGES.includes(v.page) || v.page === "lesson") return null;
+    return v;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Куда открыть приложение на старте.
+ * Адрес важнее памяти: если в ссылке указан раздел — идём туда.
+ * Иначе возвращаем пользователя туда, где он закончил.
+ */
+const initialPage = (): Page => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("room")) return "lesson";
+  if (params.get("tab")) return pageFromUrl();
+
+  const last = readLastPlace();
+  if (!last) return "dashboard";
+
+  // Память принадлежит конкретному человеку — чужую не применяем
+  let cachedId: number | null = null;
+  try {
+    cachedId = JSON.parse(localStorage.getItem("hispania_user") || "null")?.id ?? null;
+  } catch {
+    cachedId = null;
+  }
+  if (!cachedId || cachedId !== last.userId) return "dashboard";
+  if (!localStorage.getItem("hispania_token")) return "dashboard";
+
+  // Кладём раздел и внутреннюю вкладку в адрес до того, как страницы отрисуются
+  params.set("tab", last.page);
+  if (last.sub) params.set("sub", last.sub);
+  window.history.replaceState(null, "", window.location.pathname + `?${params.toString()}`);
+  return last.page;
+};
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [activePage, setActivePage] = useState<Page>(pageFromUrl);
+  const [activePage, setActivePage] = useState<Page>(initialPage);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpNew, setHelpNew] = useState(0);
@@ -111,6 +156,7 @@ export default function App() {
       } else if (res.error) {
         localStorage.removeItem("hispania_token");
         localStorage.removeItem("hispania_user");
+        localStorage.removeItem(LAST_PLACE);
         setUser(null);
       }
       setChecking(false);
@@ -138,16 +184,53 @@ export default function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
+  // Запоминаем последнее место работы — чтобы вернуть сюда при следующем входе
+  useEffect(() => {
+    if (!user || activePage === "lesson") return;
+    const save = () => {
+      const sub = new URLSearchParams(window.location.search).get("sub") || undefined;
+      localStorage.setItem(LAST_PLACE, JSON.stringify({ userId: user.id, page: activePage, sub }));
+    };
+    save();
+    // Внутреннюю вкладку переключают без смены раздела — подхватываем её отдельно
+    const t = setInterval(save, 2000);
+    window.addEventListener("beforeunload", save);
+    document.addEventListener("visibilitychange", save);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("beforeunload", save);
+      document.removeEventListener("visibilitychange", save);
+      save();
+    };
+  }, [activePage, user]);
+
   const handleLogin = (u: User) => {
     localStorage.setItem("hispania_user", JSON.stringify(u));
     setUser(u);
-    setActivePage(lessonRoom ? "lesson" : pageFromUrl());
+    if (lessonRoom) { setActivePage("lesson"); return; }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tab")) { setActivePage(pageFromUrl()); return; }
+
+    // Возвращаем человека туда, где он закончил в прошлый раз
+    const last = readLastPlace();
+    if (last && last.userId === u.id) {
+      params.set("tab", last.page);
+      if (last.sub) params.set("sub", last.sub);
+      window.history.replaceState(null, "", window.location.pathname + `?${params.toString()}`);
+      setActivePage(last.page);
+    } else {
+      setActivePage("dashboard");
+    }
   };
 
   const handleLogout = async () => {
     await apiLogout();
     localStorage.removeItem("hispania_user");
+    localStorage.removeItem(LAST_PLACE);
+    window.history.replaceState(null, "", window.location.pathname);
     setUser(null);
+    setActivePage("dashboard");
   };
 
   if (checking) {
