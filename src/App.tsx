@@ -152,7 +152,7 @@ export default function App() {
 
     apiMe().then(res => {
       if (res.user) {
-        const u: User = { id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar };
+        const u: User = { id: res.user.id, name: res.user.name, role: res.user.role, level: res.user.level, avatar: res.user.avatar, room_name: res.user.room_name };
         setUser(u);
         setNeedTeacher(!!res.need_teacher);
         localStorage.setItem("hispania_user", JSON.stringify(u));
@@ -262,7 +262,18 @@ export default function App() {
   if (needTeacher && user.role === "student") {
     return (
       <TooltipProvider>
-        <TeacherPicker userName={user.name} onDone={() => setNeedTeacher(false)} />
+        <TeacherPicker userName={user.name} onDone={() => {
+          setNeedTeacher(false);
+          // Комната зависит от преподавателя — перечитываем профиль
+          apiMe().then(res => {
+            if (res.user) {
+              const u: User = { id: res.user.id, name: res.user.name, role: res.user.role,
+                                level: res.user.level, avatar: res.user.avatar, room_name: res.user.room_name };
+              setUser(u);
+              localStorage.setItem("hispania_user", JSON.stringify(u));
+            }
+          }).catch(() => {});
+        }} />
       </TooltipProvider>
     );
   }

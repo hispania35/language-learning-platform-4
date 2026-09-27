@@ -598,6 +598,7 @@ export interface ApiUser {
   role: "student" | "teacher" | "admin";
   level?: string;
   avatar: string;
+  room_name?: string;
 }
 
 export interface HomeworkItem {
