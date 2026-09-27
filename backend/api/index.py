@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, time
 import psycopg2
 from mailer import send_email, send_bulk, lesson_started_email, lesson_reminder_email, _wrap
 
-JITSI_HOST = "hispania-35.ru"
+JITSI_HOST = "meet.hispania-35.ru"
 MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
              "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 
@@ -1958,7 +1958,7 @@ DEFAULT_SETTINGS = {
     "schedule_mode": "assigned",
     "video_platform": "jitsi",
     "video_link": "",
-    "jitsi_host": "hispania-35.ru",
+    "jitsi_host": "meet.hispania-35.ru",
     "notify_chat_sound": True,
     "notify_chat_toast": True,
     "notify_chat_email": False,
@@ -1996,8 +1996,7 @@ def get_settings(conn, user_id, role):
                     inherited.append(key)
 
     host = (data.get("jitsi_host") or "").strip().replace("https://", "").replace("http://", "").rstrip("/")
-    if not host or host in DEAD_JITSI_HOSTS:
-        data["jitsi_host"] = DEFAULT_SETTINGS["jitsi_host"]
+    data["jitsi_host"] = DEFAULT_SETTINGS["jitsi_host"] if (not host or host in DEAD_JITSI_HOSTS) else host
 
     conn.close()
     return resp(200, {"settings": data, "inherited": inherited})
@@ -2012,6 +2011,12 @@ def save_settings(event, conn, user_id):
 
     current = _raw_settings(conn, user_id)
     current.update(incoming)
+
+    # Адрес сервера храним без схемы и хвостового слэша
+    if "jitsi_host" in current:
+        h = str(current.get("jitsi_host") or "").strip()
+        h = h.replace("https://", "").replace("http://", "").rstrip("/")
+        current["jitsi_host"] = h or DEFAULT_SETTINGS["jitsi_host"]
 
     cur = conn.cursor()
     cur.execute(

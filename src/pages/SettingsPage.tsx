@@ -300,7 +300,7 @@ export default function SettingsPage({ user }: Props) {
               className="w-full px-3 py-2.5 rounded-lg border border-border bg-muted/30 text-sm font-ibm outline-none focus:border-primary/40 disabled:opacity-60"
             />
             <p className="text-xs text-muted-foreground font-ibm mt-1.5">
-              По умолчанию бесплатный {DEFAULT_JITSI_HOST}. Свой адрес указывайте, только если у вас есть собственный сервер.
+              По умолчанию {DEFAULT_JITSI_HOST} — наш сервер. Свой адрес указывайте, только если у вас есть собственный сервер.
             </p>
           </div>
         )}
