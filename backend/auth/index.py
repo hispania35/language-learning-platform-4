@@ -143,6 +143,7 @@ def login(event):
         "INSERT INTO sessions (user_id, token, expires_at) VALUES (%s, %s, %s)",
         (user_id, token, expires)
     )
+    room_name = _room_of(cur, user_id)
     conn.commit()
     cur.close(); conn.close()
 
@@ -151,7 +152,8 @@ def login(event):
         "headers": CORS,
         "body": json.dumps({
             "token": token,
-            "user": {"id": user_id, "name": name, "role": role, "level": level, "avatar": avatar}
+            "user": {"id": user_id, "name": name, "role": role, "level": level,
+                     "avatar": avatar, "room_name": room_name}
         })
     }
 
@@ -197,6 +199,8 @@ def register(event):
         (email, password, name, role, level if role == "student" else None, avatar, teacher_id, vtoken)
     )
     user_id = cur.fetchone()[0]
+    if role in ("teacher", "admin"):
+        cur.execute("UPDATE users SET room_name=%s WHERE id=%s", (f"hispania-teacher-{user_id}", user_id))
     conn.commit()
     cur.close(); conn.close()
 
@@ -403,8 +407,10 @@ def me(event):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        """SELECT u.id, u.name, u.role, u.level, u.avatar, u.teacher_id
+        """SELECT u.id, u.name, u.role, u.level, u.avatar, u.teacher_id,
+                  COALESCE(NULLIF(u.room_name,''), t.room_name, '')
            FROM sessions s JOIN users u ON u.id=s.user_id
+           LEFT JOIN users t ON t.id=u.teacher_id
            WHERE s.token=%s AND s.expires_at > NOW() AND COALESCE(u.is_blocked, FALSE) = FALSE""",
         (token,)
     )
@@ -414,13 +420,14 @@ def me(event):
     if not row:
         return {"statusCode": 401, "headers": CORS, "body": json.dumps({"error": "Сессия истекла"})}
 
-    user_id, name, role, level, avatar, teacher_id = row
+    user_id, name, role, level, avatar, teacher_id, room_name = row
     return {
         "statusCode": 200,
         "headers": CORS,
         "body": json.dumps({
             "need_teacher": role == "student" and teacher_id is None,
-            "user": {"id": user_id, "name": name, "role": role, "level": level, "avatar": avatar}
+            "user": {"id": user_id, "name": name, "role": role, "level": level,
+                     "avatar": avatar, "room_name": room_name or ""}
         })
     }
 
@@ -446,6 +453,17 @@ def send_code_email(to_mail: str, code: str, reason: str) -> bool:
     return send_email(to_mail, f"Код подтверждения: {code}", html, f"Код подтверждения: {code}")
 
 
+def _room_of(cur, user_id):
+    """Личная комната преподавателя; ученику — комната его преподавателя."""
+    cur.execute(
+        """SELECT COALESCE(NULLIF(u.room_name,''), t.room_name, '')
+           FROM users u LEFT JOIN users t ON t.id=u.teacher_id WHERE u.id=%s""",
+        (user_id,)
+    )
+    r = cur.fetchone()
+    return (r[0] if r else "") or ""
+
+
 def issue_session(conn, cur, user_id, name, role, level, avatar):
     token = secrets.token_hex(32)
     expires = datetime.now() + timedelta(days=30)
@@ -456,6 +474,7 @@ def issue_session(conn, cur, user_id, name, role, level, avatar):
         cur.execute("SELECT teacher_id FROM users WHERE id=%s", (user_id,))
         trow = cur.fetchone()
         need_teacher = bool(trow) and trow[0] is None
+    room_name = _room_of(cur, user_id)
     conn.commit()
     cur.close(); conn.close()
     return {
@@ -464,7 +483,8 @@ def issue_session(conn, cur, user_id, name, role, level, avatar):
         "body": json.dumps({
             "token": token,
             "need_teacher": need_teacher,
-            "user": {"id": user_id, "name": name, "role": role, "level": level, "avatar": avatar}
+            "user": {"id": user_id, "name": name, "role": role, "level": level,
+                     "avatar": avatar, "room_name": room_name}
         })
     }
 
@@ -733,6 +753,8 @@ def admin_add_user(event):
          (body.get("note") or "").strip())
     )
     new_id = cur.fetchone()[0]
+    if role in ("teacher", "admin"):
+        cur.execute("UPDATE users SET room_name=%s WHERE id=%s", (f"hispania-teacher-{new_id}", new_id))
     conn.commit(); cur.close(); conn.close()
 
     sent = False

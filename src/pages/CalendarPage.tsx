@@ -987,7 +987,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
 
                   <button onClick={() => {
                       if (isTeacher) apiStartLesson(selectedLesson.id).catch(() => {});
-                      onJoinLesson?.(buildRoomName(selectedLesson));
+                      onJoinLesson?.(buildRoomName(selectedLesson, user));
                     }}
                     className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-lg red-accent text-white text-sm font-montserrat font-bold hover:opacity-90 transition-opacity">
                     <Icon name="Video" size={16} />
@@ -1150,7 +1150,7 @@ export default function CalendarPage({ user, onJoinLesson }: { user: User; onJoi
             <div className="space-y-2">
               <button onClick={() => {
                   apiStartLesson(actionLesson.id).catch(() => {});
-                  onJoinLesson?.(buildRoomName(actionLesson));
+                  onJoinLesson?.(buildRoomName(actionLesson, user));
                   setActionLesson(null);
                 }}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-lg red-accent text-white hover:opacity-90 transition-opacity text-left">

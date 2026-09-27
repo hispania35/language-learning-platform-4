@@ -21,8 +21,20 @@ JITSI_HOST = "meet.hispania-35.ru"
 MONTHS_RU = ["января", "февраля", "марта", "апреля", "мая", "июня",
              "июля", "августа", "сентября", "октября", "ноября", "декабря"]
 
-def room_url(lesson_id):
-    return f"https://{JITSI_HOST}/hispania-lesson-{lesson_id}"
+def room_url(lesson_id, room=None):
+    """Ссылка на занятие в личной комнате преподавателя."""
+    base = (room or "").strip() or "hispania-room"
+    return f"https://{JITSI_HOST}/{base}-lesson-{lesson_id}"
+
+
+def teacher_room_of_lesson(cur, lesson_id):
+    cur.execute(
+        """SELECT COALESCE(NULLIF(t.room_name,''), '')
+           FROM lessons l LEFT JOIN users t ON t.id=l.teacher_id WHERE l.id=%s""",
+        (lesson_id,)
+    )
+    r = cur.fetchone()
+    return (r[0] if r else "") or ""
 
 def ru_date(d):
     return f"{d.day} {MONTHS_RU[d.month - 1]}"
@@ -1614,7 +1626,7 @@ def start_lesson(event, conn, user_id, role):
         (lesson_id,)
     )
     students = cur.fetchall()
-    url = (body.get("join_url") or "").strip() or room_url(lesson_id)
+    url = (body.get("join_url") or "").strip() or room_url(lesson_id, teacher_room_of_lesson(cur, lesson_id))
 
     notify_many(cur, [(sid, f"Урок «{topic}» начался — подключайтесь: {url}")
                       for sid, _, _ in students], "calendar")
@@ -1713,7 +1725,7 @@ def send_reminders(conn):
         topic, l_date, l_time, teacher_id, kind, hours_text = due[lid]
         if (lid, sid, kind) in already:
             continue
-        url = room_url(lid)
+        url = room_url(lid, teacher_room_of_lesson(cur, lid))
         time_str = l_time.strftime("%H:%M")
         date_str = ru_date(l_date)
         local = in_user_tz(l_date, l_time, stz)

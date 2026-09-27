@@ -15,8 +15,12 @@ const studentNames = (l: Lesson) => {
   return `${names.slice(0, 2).join(", ")} и ещё ${names.length - 2}`;
 };
 
-export const buildRoomName = (lesson?: Lesson | null) =>
-  lesson ? `hispania-lesson-${lesson.id}` : "hispania-room";
+/** Комната преподавателя: своя у каждого, ученик попадает в комнату своего педагога */
+export const teacherRoom = (user?: User | null) =>
+  (user?.room_name || "").trim() || "hispania-room";
+
+export const buildRoomName = (lesson?: Lesson | null, user?: User | null) =>
+  lesson ? `${teacherRoom(user)}-lesson-${lesson.id}` : teacherRoom(user);
 
 export const buildRoomUrl = (room: string, userName: string) => {
   const p = getPlatform();
@@ -90,13 +94,13 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
     .slice(0, 4);
 
   const startLesson = (lesson?: Lesson) => {
-    setRoom(buildRoomName(lesson));
+    setRoom(buildRoomName(lesson, user));
     setTimeout(() => frameRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
     if (lesson && (user.role === "teacher" || user.role === "admin")) {
       setNotice("Отправляю приглашения ученикам...");
       const p = getPlatform();
       const extLink = p === "webrtc"
-        ? `${window.location.origin}/?room=${encodeURIComponent(buildRoomName(lesson))}`
+        ? `${window.location.origin}/?room=${encodeURIComponent(buildRoomName(lesson, user))}`
         : p === "jitsi" ? "" : getPlatformLink(p);
       apiStartLesson(lesson.id, extLink ? (extLink.startsWith("http") ? extLink : `https://${extLink}`) : undefined)
         .then(res => {
@@ -117,10 +121,10 @@ export default function LessonRoomPage({ user, initialRoom, onLeave }: Props) {
 
   const startCustom = () => {
     const name = customRoom.trim().replace(/\s+/g, "-").toLowerCase();
-    setRoom(name ? `hispania-${name}` : "hispania-room");
+    setRoom(name ? `${teacherRoom(user)}-${name}` : teacherRoom(user));
   };
 
-  const activeLesson = room ? lessons.find(l => buildRoomName(l) === room) : undefined;
+  const activeLesson = room ? lessons.find(l => buildRoomName(l, user) === room) : undefined;
 
   const chatPeers = (activeLesson?.students || []).map(s => s.id);
 

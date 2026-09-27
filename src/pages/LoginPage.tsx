@@ -12,6 +12,7 @@ export interface User {
   role: UserRole;
   level?: string;
   avatar: string;
+  room_name?: string;
 }
 
 interface LoginPageProps {
