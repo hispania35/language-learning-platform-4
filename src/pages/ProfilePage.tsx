@@ -14,11 +14,11 @@ const plural = (n: number, one: string, few: string, many: string) => {
 };
 
 const profileTabs = ["Профиль", "Статистика", "Рейтинг"];
-const allTabs = [...profileTabs, "Сброс паролей"];
+const allTabs = [...profileTabs, "Сброс паролей учеников"];
 const tabCodes = ["profile", "stats", "rating", "passwords"] as const;
 
 export default function ProfilePage({ user }: { user: User }) {
-  const tabs = (user.role === "teacher" || user.role === "admin") ? [...profileTabs, "Сброс паролей"] : profileTabs;
+  const tabs = (user.role === "teacher" || user.role === "admin") ? [...profileTabs, "Сброс паролей учеников"] : profileTabs;
   const [tabCode, setTabCode] = useStickyTab("sub", tabCodes, "profile");
   const fromUrl = allTabs[Math.max(0, tabCodes.indexOf(tabCode))];
   // Ученик мог прийти по ссылке на учительскую вкладку — показываем профиль
@@ -39,7 +39,7 @@ export default function ProfilePage({ user }: { user: User }) {
   const [resetMsg, setResetMsg] = useState<Record<number, string>>({});
 
   useEffect(() => {
-    if (activeTab === "Сброс паролей" && (user.role === "teacher" || user.role === "admin")) {
+    if (activeTab === "Сброс паролей учеников" && (user.role === "teacher" || user.role === "admin")) {
       setResetsLoading(true);
       apiResetList().then(res => {
         if (res.resets) setResets(res.resets);
@@ -302,7 +302,7 @@ export default function ProfilePage({ user }: { user: User }) {
       )}
 
 
-      {activeTab === "Сброс паролей" && (user.role === "teacher" || user.role === "admin") && (
+      {activeTab === "Сброс паролей учеников" && (user.role === "teacher" || user.role === "admin") && (
         <div className="animate-fade-in space-y-4">
           <div className="bg-card rounded-xl border border-border overflow-hidden">
             <div className="px-5 py-4 border-b border-border flex items-center gap-2">
